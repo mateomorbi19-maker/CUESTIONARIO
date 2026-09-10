@@ -11,6 +11,8 @@ next-env.d.ts
 
 # Material real de clientes para pruebas. El repositorio es público.
 pruebas/privadas/
+# Lo que genera el simulador: se regenera en cada corrida.
+pruebas/salidas/
 
 # Configuración local de herramientas
 .claude/

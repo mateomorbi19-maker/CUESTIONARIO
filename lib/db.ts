@@ -219,15 +219,41 @@ function base(): Promise<Base> {
  * carpeta de migraciones: los cambios se agregan con IF NOT EXISTS.
  */
 const SCHEMA = `
--- Un cuestionario por negocio. Crece en la fase 1 con ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
+-- Un cuestionario por negocio. Todo lo que avanza el motor vive en "estado": se lee y se
+-- escribe entero en cada paso, y "version" evita que dos pestañas abiertas del mismo
+-- cliente se pisen las respuestas.
 CREATE TABLE IF NOT EXISTS cuestionarios (
   id             TEXT PRIMARY KEY,
   creado_en      TIMESTAMPTZ NOT NULL DEFAULT now(),
   actualizado_en TIMESTAMPTZ NOT NULL DEFAULT now(),
   negocio        TEXT NOT NULL,
   email          TEXT NOT NULL,
-  etapa          TEXT NOT NULL DEFAULT 'triage'
+  etapa          TEXT NOT NULL DEFAULT 'triage',
+  estado         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  version        INTEGER NOT NULL DEFAULT 0,
+  -- El hash del token del link personal, no el token: con la tabla en la mano no se entra
+  -- a ningún cuestionario.
+  token_sha256   TEXT,
+  terminado_en   TIMESTAMPTZ
 );
+CREATE UNIQUE INDEX IF NOT EXISTS cuestionarios_token_uidx ON cuestionarios (token_sha256) WHERE token_sha256 IS NOT NULL;
+
+-- Cada llamada a Claude: cuánto cuesta un cuestionario y dónde hubo cortes o rechazos.
+CREATE TABLE IF NOT EXISTS llamadas_ia (
+  id                    BIGSERIAL PRIMARY KEY,
+  cuestionario_id       TEXT REFERENCES cuestionarios(id) ON DELETE CASCADE,
+  ts                    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paso                  TEXT NOT NULL,
+  modelo                TEXT NOT NULL,
+  stop_reason           TEXT,
+  tokens_entrada        INTEGER NOT NULL DEFAULT 0,
+  tokens_salida         INTEGER NOT NULL DEFAULT 0,
+  tokens_cache_escritos INTEGER NOT NULL DEFAULT 0,
+  tokens_cache_leidos   INTEGER NOT NULL DEFAULT 0,
+  duracion_ms           INTEGER NOT NULL DEFAULT 0,
+  error                 TEXT
+);
+CREATE INDEX IF NOT EXISTS llamadas_ia_cuestionario_idx ON llamadas_ia (cuestionario_id, id);
 `
 
 /**
@@ -237,7 +263,7 @@ CREATE TABLE IF NOT EXISTS cuestionarios (
  * el contador, y si alguien no lo hace /api/salud informa "esquema creado" aunque la tabla
  * nueva haya fallado.
  */
-export const TABLAS = ['cuestionarios'] as const
+export const TABLAS = ['cuestionarios', 'llamadas_ia'] as const
 
 function asegurarEsquema(b: Base): Promise<void> {
   if (!globalParaBase._esquemaListo) {
