@@ -1,0 +1,3 @@
+# Los cuestionarios son privados: nada de esto tiene que aparecer en buscadores.
+User-agent: *
+Disallow: /

@@ -1,0 +1,17 @@
+node_modules/
+.next/
+data/
+*.log
+next-env.d.ts
+
+# Secretos: nunca al repositorio
+.env
+.env.*
+!.env.example
+
+# Material real de clientes para pruebas. El repositorio es público.
+pruebas/privadas/
+
+# Configuración local de herramientas
+.claude/
+*.tsbuildinfo

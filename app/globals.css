@@ -1,0 +1,41 @@
+:root {
+  --fondo: #f7f6f2;
+  --texto: #1d1d1b;
+  --suave: #6b6a65;
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.provisoria {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 4rem 1.25rem;
+}
+
+.provisoria h1 {
+  font-size: 1.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.provisoria p {
+  color: var(--suave);
+  margin: 0;
+}

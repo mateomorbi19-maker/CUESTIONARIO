@@ -1,0 +1,185 @@
+[
+  {
+    "id": "01-clinica-odontologica",
+    "negocio": "Clínica odontológica en Rosario",
+    "arquetipo_esperado": "B",
+    "accion_terminal_esperada": "turno reservado",
+    "prueba": "Negocio que no informa precios por chat. El examen no tiene que insistir con objeciones de precio.",
+    "caracter": "Responde corto y con paciencia. Es la secretaria, no la dueña, así que de precios sabe poco.",
+    "hechos": [
+      "El último chat bueno terminó con un turno anotado en la agenda de papel y en Doctoralia.",
+      "Los turnos los agenda ella misma. El doctor no toca el WhatsApp.",
+      "La mayoría viene una vez por año, algunos son de tratamiento largo y vuelven cada quince días.",
+      "Antes de contestar tiene que mirar la agenda, siempre. Y fijarse si la obra social está al día.",
+      "Le escriben unas 60 personas por semana. Casi todas preguntan lo mismo: si atienden su obra social, cuánto sale la consulta particular y si hay turno para esta semana.",
+      "Lo que más la rompe es contestar cuarenta veces por día 'sí, atendemos OSDE' y que después la gente no venga.",
+      "El precio de los tratamientos no lo da por chat nunca. Se define después de la consulta de diagnóstico.",
+      "Necesita: nombre, obra social, número de afiliado, motivo de consulta y si es primera vez."
+    ]
+  },
+  {
+    "id": "02-infoproductor-trading",
+    "negocio": "Curso y mentoría de trading, vende por Instagram",
+    "arquetipo_esperado": "A",
+    "accion_terminal_esperada": "link de pago enviado",
+    "prueba": "Caso central del público de Mateo. El examen tiene que cubrir objeciones de precio a fondo.",
+    "caracter": "Habla mucho, usa jerga de marketing, se va por las ramas. Hay que traerlo al hecho concreto.",
+    "hechos": [
+      "El último chat bueno terminó con él mandando el link de Mercado Pago y la persona pagando a los veinte minutos.",
+      "Cierra él, no tiene equipo.",
+      "El que compra el curso a veces después compra la mentoría. La mayoría compra una sola vez.",
+      "No tiene que fijarse nada antes de contestar. Los cupos de la mentoría sí: son doce por camada.",
+      "Le escriben unas 150 personas por semana. El 70% pregunta el precio en el primer mensaje.",
+      "Lo que más lo rompe es que se le caen los que preguntan el precio y desaparecen.",
+      "El curso sale 297 dólares, la mentoría 1500. Acepta Mercado Pago, transferencia y cripto.",
+      "Las objeciones que más escucha: 'es caro', 'ya compré otro curso y no me sirvió', 'lo tengo que hablar con mi señora'."
+    ]
+  },
+  {
+    "id": "03-tienda-indumentaria",
+    "negocio": "Tienda de ropa femenina, vende por Instagram y tiene web",
+    "arquetipo_esperado": "C",
+    "accion_terminal_esperada": "pedido cerrado o derivado a la web",
+    "prueba": "E-commerce que deriva a la web. El examen tiene que preguntar por stock, talles y envíos, no por convencer.",
+    "caracter": "Responde con frases cortas, usa emojis, va al grano.",
+    "hechos": [
+      "El último chat bueno terminó con la clienta comprando en la web después de que le pasaran el link del producto.",
+      "El pedido lo cierra la web sola. Ella solo manda el link.",
+      "Las clientas vuelven, muchas compran cada dos o tres meses.",
+      "Tiene que fijarse el stock siempre, sobre todo talles. El sistema es Tienda Nube.",
+      "Le escriben unas 200 por semana. Casi todas preguntan si hay tal talle y cuánto sale el envío.",
+      "Lo que más la rompe es responder por stock de cosas que ya no tiene.",
+      "Envío gratis a partir de 80 mil pesos. Cambios dentro de los 30 días.",
+      "Necesita saber: qué producto, qué talle, qué color, a qué ciudad."
+    ]
+  },
+  {
+    "id": "04-inmobiliaria",
+    "negocio": "Inmobiliaria de alquileres en Mar del Plata",
+    "arquetipo_esperado": "B",
+    "accion_terminal_esperada": "visita agendada",
+    "prueba": "Agendamiento con filtro fuerte previo. Tiene que aparecer el criterio de descalificación.",
+    "caracter": "Responde con precisión, tiene el proceso bastante claro. Es formal.",
+    "hechos": [
+      "El último chat bueno terminó con una visita agendada para el sábado a las 11.",
+      "La visita la hace un asesor del equipo. Ella agenda.",
+      "El inquilino aparece una vez. El propietario vuelve.",
+      "Tiene que fijarse si la propiedad sigue disponible y si el asesor tiene el horario libre.",
+      "Le escriben unas 80 por semana. Casi todas preguntan por propiedades ya alquiladas.",
+      "Lo que más la rompe es agendar visitas con gente que después no califica para el alquiler.",
+      "Para calificar necesita: recibo de sueldo de tres veces el alquiler, garantía propietaria en Mar del Plata, y que no tenga mascotas si el propietario no acepta.",
+      "Descarta al que no tiene garantía. Es lo primero que pregunta."
+    ]
+  },
+  {
+    "id": "05-agencia-marketing",
+    "negocio": "Agencia de marketing digital, servicios mensuales",
+    "arquetipo_esperado": "D",
+    "accion_terminal_esperada": "llamada agendada con el closer",
+    "prueba": "Derivación a humano. El examen tiene que capturar los datos de calificación previos.",
+    "caracter": "Ordenado, responde estructurado. Tiene un CRM y lo menciona.",
+    "hechos": [
+      "El último chat bueno terminó con una llamada agendada en el Calendly del socio.",
+      "Cierra el socio, en la llamada. Él solo filtra.",
+      "El cliente que entra se queda meses. Vuelve poco por chat.",
+      "No tiene que fijarse nada, salvo la agenda del socio.",
+      "Le escriben unas 40 por semana. La mitad son freelancers que quieren trabajo, no clientes.",
+      "Lo que más lo rompe es filtrar a la gente que le pide trabajo o que no tiene presupuesto.",
+      "El mínimo de facturación es 800 dólares por mes. Abajo de eso no toman.",
+      "Necesita saber: rubro, facturación actual, qué están haciendo hoy de marketing, y hace cuánto facturan."
+    ]
+  },
+  {
+    "id": "06-rotiseria",
+    "negocio": "Rotisería con delivery propio",
+    "arquetipo_esperado": "C",
+    "accion_terminal_esperada": "pedido tomado",
+    "prueba": "Pedido recurrente sin calificación. El examen no tiene que gastar preguntas en descalificar clientes.",
+    "caracter": "Habla informal, apurado, mensajes muy cortos. Es el dueño y está cocinando.",
+    "hechos": [
+      "El último chat bueno terminó con un pedido anotado y el repartidor saliendo.",
+      "Toma él los pedidos, o la mujer.",
+      "Los clientes son casi todos del barrio y piden todas las semanas.",
+      "Tiene que fijarse qué le queda. Los domingos se le acaban las milanesas temprano.",
+      "Le escriben unos 300 por semana, casi todos viernes y sábado. Todos preguntan lo mismo: qué hay hoy y cuánto tarda.",
+      "Lo que más lo rompe es contestar el menú cincuenta veces mientras cocina.",
+      "Zona de reparto: seis cuadras a la redonda. Efectivo, transferencia o Mercado Pago.",
+      "Necesita: qué pide, dirección, cómo paga."
+    ]
+  },
+  {
+    "id": "07-estudio-contable",
+    "negocio": "Estudio contable, monotributistas y pymes",
+    "arquetipo_esperado": "D",
+    "accion_terminal_esperada": "reunión agendada",
+    "prueba": "Servicio donde el precio depende del caso. Tiene que resolver bien el NO APLICA de precios.",
+    "caracter": "Serio, responde con reservas, cuida mucho lo que dice. Dice 'depende' bastante.",
+    "hechos": [
+      "El último chat bueno terminó con una reunión agendada en el estudio para el martes.",
+      "La reunión la toma él, el contador. La secretaria agenda.",
+      "El cliente que entra se queda años y escribe todo el tiempo con consultas.",
+      "Tiene que fijarse la agenda del contador.",
+      "Le escriben unas 50 por semana. La mitad son clientes actuales con dudas de facturación.",
+      "Lo que más lo rompe es que los clientes actuales le escriben por cosas que ya están explicadas.",
+      "El honorario depende de la categoría del monotributo y del volumen. No lo da por chat.",
+      "Antes de la reunión necesita saber: si ya está inscripto, en qué categoría, si tiene empleados, si viene de otro estudio."
+    ]
+  },
+  {
+    "id": "08-gimnasio-hibrido",
+    "negocio": "Gimnasio de barrio, planes mensuales",
+    "arquetipo_esperado": "hibrido",
+    "accion_terminal_esperada": "el alumno tiene que elegir uno",
+    "prueba": "CASO CLAVE. Vende planes por chat Y agenda clases de prueba. Si el examen persigue las dos cosas, la regla del objetivo único no está funcionando.",
+    "caracter": "Amable, dice que sí a todo, no se da cuenta de que tiene dos procesos.",
+    "hechos": [
+      "Depende. A veces termina con la persona pagando el mes por transferencia, y a veces con una clase de prueba agendada para el otro día.",
+      "Si insisten en la clase de prueba, aclarar que las dos cosas pasan seguido, más o menos mitad y mitad.",
+      "Cierra él o el profe que esté en el mostrador.",
+      "El socio se queda meses y escribe seguido para preguntar horarios.",
+      "Tiene que fijarse el cupo de las clases de spinning, que se llenan.",
+      "Le escriben unos 70 por semana. Preguntan precio, horarios y si hay clase de prueba.",
+      "Lo que más lo rompe es que le preguntan los horarios todo el tiempo.",
+      "El plan libre sale 25 mil por mes, tres veces por semana 18 mil.",
+      "Si le preguntan cuál de los dos procesos le resuelve más problema, después de pensarlo dice que la clase de prueba, porque el que prueba se queda casi siempre."
+    ]
+  },
+  {
+    "id": "09-mentoria-highticket",
+    "negocio": "Mentoría de negocios high ticket, 6 mil dólares",
+    "arquetipo_esperado": "D",
+    "accion_terminal_esperada": "llamada de diagnóstico agendada",
+    "prueba": "Proceso largo que no da precio por chat. Tiene que quedar claro el criterio de descalificación y el NO APLICA de precio.",
+    "caracter": "Habla con seguridad, tiene el proceso muy claro, responde completo.",
+    "hechos": [
+      "El último chat bueno terminó con una llamada de diagnóstico agendada.",
+      "La llamada la toma él. No tiene closer.",
+      "El mentoreado entra por seis meses y no vuelve a comprar.",
+      "Tiene que fijarse su propia agenda. Toma cuatro llamadas por semana, no más.",
+      "Le escriben unos 30 por semana. Muchos son curiosos que no tienen negocio.",
+      "Lo que más lo rompe es tomar llamadas con gente que no puede pagar.",
+      "El precio no lo dice por chat nunca. Se habla en la llamada.",
+      "Descarta al que no tiene un negocio andando facturando arriba de 5 mil dólares por mes.",
+      "Antes de la llamada necesita: qué negocio tiene, cuánto factura, hace cuánto, y qué quiere resolver."
+    ]
+  },
+  {
+    "id": "10-cerrajeria-desordenada",
+    "negocio": "Cerrajería, atiende urgencias y trabajos programados",
+    "arquetipo_esperado": "B",
+    "accion_terminal_esperada": "visita coordinada",
+    "prueba": "CASO CLAVE. Alumno desordenado: no tiene chats guardados, contesta vago, no sabe números. Testea el protocolo anti-vaguedad y el manejo de pendientes.",
+    "caracter": "Contesta muy corto y vago. Dice 'y... depende' seguido. Se distrae. Si le piden conversaciones viejas dice que borra los chats. Si le insisten con un dato que no sabe, dice que no lleva la cuenta. NUNCA inventa un número: dice que no sabe.",
+    "hechos": [
+      "El último chat bueno: y... vino, le abrí la puerta y me pagó. No se acuerda bien del chat.",
+      "Si le repreguntan qué hizo él último en el chat: le pasó la dirección y quedaron en un horario.",
+      "Va él a los trabajos, no tiene empleados.",
+      "Alguno vuelve, la mayoría no. Depende.",
+      "No se fija nada, depende de si está en la calle o no.",
+      "No sabe cuántos le escriben. Bastantes. No lleva la cuenta.",
+      "Lo que más lo rompe: que le preguntan el precio y no puede decirlo sin ver la cerradura.",
+      "Los precios dependen del trabajo. Una apertura simple ronda los 20 mil pero depende.",
+      "Si le preguntan por urgencias: sí, sale más caro de noche, como el doble, pero depende."
+    ]
+  }
+]
