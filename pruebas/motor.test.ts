@@ -152,6 +152,16 @@ describe('Fase 1', () => {
     assert.deepEqual(estado.correcciones, ['No, el chat termina cuando pagan la seña'])
     assert.equal(estado.clasificacion?.arquetipo, 'A')
   })
+
+  it('saca el rótulo "Acción terminal del chat bueno:" si el modelo lo copia en el valor', async () => {
+    const conRotulo: SalidaClasificacion = {
+      ...clasificacionSimple,
+      accion_terminal: 'Acción terminal del chat bueno: le paso la dirección y quedamos en un horario',
+    }
+    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [alcanza], clasificar: [conRotulo] })
+    const estado = await aplicar(estadoInicial('Cerrajería'), seisRespuestas, dependencias(ia))
+    assert.equal(estado.clasificacion?.accionTerminal, 'le paso la dirección y quedamos en un horario')
+  })
 })
 
 describe('generación del examen', () => {

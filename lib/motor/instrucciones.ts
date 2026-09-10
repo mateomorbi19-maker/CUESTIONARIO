@@ -159,10 +159,10 @@ export function clasificar(estado: EstadoCuestionario): Paso {
 ${loQueContoElDueno(estado)}
 
 Hacé la Fase 1 de la skill y devolvé:
-- "accion_terminal": la acción terminal del chat bueno, con las palabras del dueño.
+- "accion_terminal": la acción terminal del chat bueno, con las palabras del dueño y sin el rótulo "Acción terminal del chat bueno:" adelante.
 - "arquetipo": la letra. Sale de esa acción terminal y de la tabla de la skill, de nada más.
 - "hibrido": true solo si hay dos procesos distintos conviviendo.${yaEligio} Si es true, "procesos" lleva los dos, cada uno en una frase corta con las palabras del dueño. Si no, va vacío.
-- "mensaje": si no es híbrido, el mensaje de la Fase 1 con el formato de la skill: qué es su caso, qué le va a preguntar el cuestionario por eso y qué no, y termina con "¿Vamos bien o me estoy equivocando en algo?". Nombrá el caso con palabras comunes (venta, agendamiento, pedido, derivación, soporte), nunca con la letra. Si es híbrido, va vacío: primero tiene que elegir.${corrigio}`,
+- "mensaje": si no es híbrido, el mensaje de la Fase 1 con el formato de la skill: qué es su caso, qué le va a preguntar el cuestionario por eso y qué no, y termina con "¿Vamos bien o me estoy equivocando en algo?". Nombrá el caso con palabras comunes (venta, agendamiento, pedido, derivación, soporte), nunca con la letra. El agente atiende a los clientes del dueño, no al dueño: escribí "el agente no está para vender", nunca "venderte". Si es híbrido, va vacío: primero tiene que elegir.${corrigio}`,
     esquema: objeto({
       accion_terminal: TEXTO,
       arquetipo: { type: 'string', enum: Object.keys(ARQUETIPOS) },

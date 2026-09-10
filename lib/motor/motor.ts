@@ -175,7 +175,9 @@ async function clasificar(estado: EstadoCuestionario, dep: Dependencias): Promis
   }
 
   estado.clasificacion = {
-    accionTerminal: salida.accion_terminal.trim(),
+    // La skill pide escribir la línea "Acción terminal del chat bueno: ..." y el modelo a veces
+    // copia el rótulo adentro del valor: en el examen quedaba "Acción terminal: Acción terminal...".
+    accionTerminal: salida.accion_terminal.replace(/^\s*acci[oó]n terminal(?: del chat bueno)?\s*:\s*/i, '').trim(),
     arquetipo: salida.arquetipo,
     hibrido,
     procesos: hibrido ? salida.procesos.map((p) => p.trim()) : [],
