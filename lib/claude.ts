@@ -10,17 +10,25 @@ import Anthropic from '@anthropic-ai/sdk'
 
 export type Esfuerzo = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
+export type VidaCache = '5m' | '1h'
+
 export interface PedidoJson {
   /** Nombre del paso del motor. Va al registro de llamadas. */
   paso: string
-  /**
-   * Bloques fijos del sistema, de lo más estable a lo menos. El último lleva la marca de
-   * caché, así el prefijo entero (capa web + skill) se reutiliza entre cuestionarios.
-   */
+  /** Bloques fijos del sistema, de lo más estable a lo menos. */
   sistema: string[]
   /** Lo que cambia en cada llamada: transcripción, respuesta nueva, material. */
   mensaje: string
   esquema: Record<string, unknown>
+  /**
+   * Vida de la caché del prefijo, o null para no cachear.
+   *
+   * El esquema forma parte del prefijo: cada paso tiene su propia caché. Escribirla cuesta más
+   * que mandar el prefijo sin caché (1,25 veces con 5 minutos, 2 con una hora), así que solo
+   * conviene en pasos que se repiten seguido. En la primera simulación, con caché de una hora
+   * en todos los pasos, la escritura fue más de la mitad del costo.
+   */
+  cache: VidaCache | null
   esfuerzo: Esfuerzo
   maxTokens: number
 }
@@ -33,6 +41,8 @@ export interface RegistroLlamada {
   tokensSalida: number
   tokensCacheEscritos: number
   tokensCacheLeidos: number
+  /** Con qué vida se escribió la caché: cambia el precio de la escritura. */
+  cache: VidaCache | null
   duracionMs: number
   error: string | null
 }
@@ -78,9 +88,7 @@ export function clienteClaude(
         system: pedido.sistema.map((texto, i) => ({
           type: 'text',
           text: texto,
-          // Una hora y no los 5 minutos por defecto: entre respuesta y respuesta de un
-          // cliente pasan minutos, y la caché se vencería en el medio.
-          ...(i === pedido.sistema.length - 1 ? { cache_control: { type: 'ephemeral', ttl: '1h' } } : {}),
+          ...(pedido.cache && i === pedido.sistema.length - 1 ? { cache_control: { type: 'ephemeral', ttl: pedido.cache } } : {}),
         })),
         messages: [{ role: 'user', content: pedido.mensaje }],
         output_config: { effort: pedido.esfuerzo, format: { type: 'json_schema', schema: pedido.esquema } },
@@ -91,7 +99,15 @@ export function clienteClaude(
       }
 
       const inicio = Date.now()
-      const vacio = { paso: pedido.paso, modelo, tokensEntrada: 0, tokensSalida: 0, tokensCacheEscritos: 0, tokensCacheLeidos: 0 }
+      const vacio = {
+        paso: pedido.paso,
+        modelo,
+        tokensEntrada: 0,
+        tokensSalida: 0,
+        tokensCacheEscritos: 0,
+        tokensCacheLeidos: 0,
+        cache: pedido.cache,
+      }
 
       let respuesta: Anthropic.Beta.BetaMessage
       try {

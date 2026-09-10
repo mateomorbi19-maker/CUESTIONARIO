@@ -39,8 +39,8 @@ const MODELO_PERSONA = process.env.MODELO_PERSONA || 'claude-sonnet-5'
 
 /*
  * Precios en dólares por millón de tokens, de la tabla de Anthropic de junio de 2026. Es una
- * estimación: escribir en la caché con vida de una hora cuesta el doble de la entrada, y leer
- * de ella, un décimo.
+ * estimación: escribir en la caché cuesta 1,25 veces la entrada con vida de 5 minutos y 2 veces
+ * con vida de una hora; leer de ella, un décimo.
  */
 const PRECIOS: Record<string, { entrada: number; salida: number }> = {
   'claude-opus-5': { entrada: 5, salida: 25 },
@@ -51,7 +51,8 @@ const PRECIOS: Record<string, { entrada: number; salida: number }> = {
 function costoEstimado(registros: RegistroLlamada[]): number {
   return registros.reduce((total, r) => {
     const precio = PRECIOS[r.modelo] ?? PRECIOS['claude-opus-5']
-    const entrada = r.tokensEntrada + r.tokensCacheEscritos * 2 + r.tokensCacheLeidos * 0.1
+    const escritura = r.cache === '1h' ? 2 : 1.25
+    const entrada = r.tokensEntrada + r.tokensCacheEscritos * escritura + r.tokensCacheLeidos * 0.1
     return total + (entrada * precio.entrada + r.tokensSalida * precio.salida) / 1_000_000
   }, 0)
 }
@@ -126,6 +127,8 @@ async function responderComoPersona(persona: Persona, pantalla: Pantalla, histor
         texto: { type: 'string' },
       },
     },
+    // La persona contesta decenas de veces con el mismo sistema: acá la caché sí rinde.
+    cache: '5m',
     esfuerzo: 'low',
     maxTokens: 4000,
   })

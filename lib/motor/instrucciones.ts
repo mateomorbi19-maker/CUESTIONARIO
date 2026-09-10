@@ -1,4 +1,4 @@
-import type { Esfuerzo } from '../claude'
+import type { Esfuerzo, VidaCache } from '../claude'
 import {
   ARQUETIPOS,
   MAXIMO_PREGUNTAS,
@@ -14,14 +14,16 @@ import type { Clasificacion, EstadoCuestionario, Intercambio } from './tipos'
 /**
  * Lo que se le pide a Claude en cada paso.
  *
- * El sistema de cada llamada es siempre [skill, CAPA_WEB]: no cambia entre pasos ni entre
- * cuestionarios, así que queda en caché. Todo lo variable va en el mensaje.
+ * El sistema de cada llamada es siempre [skill, CAPA_WEB]. Todo lo variable va en el mensaje,
+ * así el prefijo es el mismo entre cuestionarios y se puede cachear en los pasos que se repiten.
  */
 
 export interface Paso {
   paso: string
   mensaje: string
   esquema: Record<string, unknown>
+  /** Solo en pasos que corren varias veces seguidas. Ver PedidoJson.cache. */
+  cache: VidaCache | null
   esfuerzo: Esfuerzo
   maxTokens: number
 }
@@ -121,6 +123,8 @@ Evaluá la última respuesta. Decidí:
 
 En "repregunta" va el texto exacto a mostrarle: una sola pregunta, con voseo, sin felicitar y sin explicar por qué repreguntás. Si la decisión es "seguir", va vacío.`,
     esquema: objeto({ decision: { type: 'string', enum: ['seguir', 'repreguntar'] }, repregunta: TEXTO }),
+    // Corre seis veces en un par de minutos: la caché corta alcanza y se amortiza.
+    cache: '5m',
     esfuerzo: 'low',
     maxTokens: 4000,
   }
@@ -135,6 +139,7 @@ ${bloque('triage', conversacion(estado.triage.intercambios))}
 
 "alcanza" es true solo si se cumplen las dos cosas. En "accion_terminal" va la acción terminal con sus palabras, o vacío si no la hay. En "datos_concretos" van los datos concretos que encontraste, copiados de sus respuestas.`,
     esquema: objeto({ alcanza: { type: 'boolean' }, accion_terminal: TEXTO, datos_concretos: LISTA_DE_TEXTOS }),
+    cache: null,
     esfuerzo: 'medium',
     maxTokens: 4000,
   }
@@ -165,6 +170,8 @@ Hacé la Fase 1 de la skill y devolvé:
       procesos: LISTA_DE_TEXTOS,
       mensaje: TEXTO,
     }),
+    // Corre una vez por cuestionario, salvo que el dueño corrija: la escritura no se amortiza.
+    cache: null,
     esfuerzo: 'high',
     maxTokens: 8000,
   }
@@ -196,7 +203,7 @@ ${loQueContoElDueno(estado)}
 
 Cómo devolverlo:
 - "negocio": el nombre del negocio para el título.
-- "material": lo que va en la sección 0, un elemento por ítem.
+- "material": lo que va en la sección 0, un elemento por ítem. Cada una de las tres conversaciones es un ítem propio, que dice cuál es.
 - "secciones": las nueve, de la 1 a la 9, cada una con sus preguntas sin numerar. La app las numera y arma el markdown con la estructura de la skill.
 - Entre ${MINIMO_PREGUNTAS} y ${MAXIMO_PREGUNTAS} preguntas en total. Apuntá a unas 38.
 - "nota": vacía, salvo que el triage haya sido vago y tampoco haya chat real ni reconstrucción con hechos concretos. En ese caso lleva exactamente: "${NOTA_GENERICO}"
@@ -211,6 +218,8 @@ Antes de devolver, hacé la verificación de la Fase 3 de la skill.${correccion}
         items: objeto({ numero: { type: 'integer', enum: [1, 2, 3, 4, 5, 6, 7, 8, 9] }, preguntas: LISTA_DE_TEXTOS }),
       },
     }),
+    // Si la validación falla se reintenta, pero en la clínica salió bien de una: no se cachea.
+    cache: null,
     esfuerzo: 'high',
     maxTokens: 16000,
   }

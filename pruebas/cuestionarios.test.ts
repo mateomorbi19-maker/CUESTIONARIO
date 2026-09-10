@@ -63,6 +63,7 @@ describe('cuestionarios en la base', () => {
       tokensSalida: 40,
       tokensCacheEscritos: 5000,
       tokensCacheLeidos: 0,
+      cache: '5m',
       duracionMs: 900,
       error: null,
     })
