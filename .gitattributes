@@ -1,0 +1,2 @@
+# El Dockerfile y todo lo que corre en Linux necesita fin de linea LF, tambien en Windows.
+* text=auto eol=lf
