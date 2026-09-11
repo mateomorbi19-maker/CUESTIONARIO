@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { AreaDeTexto, useBorrador } from '../componentes/AreaDeTexto'
+import { AreaDeTexto, useBorrador, useFaltaTexto } from '../componentes/AreaDeTexto'
 import { Boton } from '../componentes/Boton'
 import { useEnvio, type PantallaDe } from '../componentes/Contexto'
 import { ListaDeMaterial } from '../componentes/ListaDeMaterial'
@@ -14,17 +14,30 @@ export function PedidoChat({ pantalla }: { pantalla: PantallaDe<'pedido_chat'> }
   const [subiendo, setSubiendo] = useState(false)
   const id = useId()
   const idPedido = `${id}pedido`
+  const idChat = `${id}chat`
   const bloqueado = ocupado || subiendo
   const completo = texto.trim() !== '' || pantalla.archivos.length > 0
+  const { falta, avisar, ocultar } = useFaltaTexto(
+    idChat,
+    'Pegá la conversación o subí capturas del chat para seguir.',
+  )
+  // Si después del aviso subió capturas, ya no falta nada.
+  const faltaVisible = completo ? null : falta
 
   async function listo() {
-    if (!completo || bloqueado) return
+    if (bloqueado) return
+    if (!completo) return avisar()
     // Con capturas subidas el texto puede ir vacío: el servidor lee las imágenes.
     if (await mandar('listo', { tipo: 'respuesta', texto: texto.trim() })) descartar()
   }
 
   async function sinChat() {
     if (await mandar('sin_chat', { tipo: 'sin_chat' })) descartar()
+  }
+
+  function escribir(valor: string) {
+    ocultar()
+    cambiar(valor)
   }
 
   return (
@@ -40,12 +53,13 @@ export function PedidoChat({ pantalla }: { pantalla: PantallaDe<'pedido_chat'> }
         }}
       >
         <AreaDeTexto
-          id={`${id}chat`}
+          id={idChat}
           etiqueta="Pegá acá la conversación"
           valor={texto}
-          onCambio={cambiar}
+          onCambio={escribir}
           onEnviar={listo}
           descritoPor={idPedido}
+          invalido={faltaVisible !== null}
         />
         <div className="bloque">
           <h2 className="subtitulo">¿Preferís mandar capturas?</h2>
@@ -56,9 +70,9 @@ export function PedidoChat({ pantalla }: { pantalla: PantallaDe<'pedido_chat'> }
           />
           <ListaDeMaterial archivos={pantalla.archivos} bloqueado={subiendo} />
         </div>
-        <MensajeError mensaje={error} />
+        <MensajeError mensaje={faltaVisible ?? error} />
         <div className="acciones acciones-final">
-          <Boton type="submit" disabled={!completo || bloqueado} enCurso={enCurso === 'listo'}>
+          <Boton type="submit" disabled={bloqueado} enCurso={enCurso === 'listo'}>
             Listo
           </Boton>
           <Boton

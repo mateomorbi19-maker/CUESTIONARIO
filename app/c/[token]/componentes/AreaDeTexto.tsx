@@ -4,7 +4,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  useSyncExternalStore,
   type KeyboardEvent,
 } from 'react'
 import { borrarBorrador, guardarBorrador, leerBorrador } from '@/lib/cliente-api'
@@ -44,14 +43,21 @@ export function useBorrador(clave: string) {
   return { texto, cambiar, descartar }
 }
 
-const sinSuscripcion = () => () => {}
+/**
+ * Para los botones de seguir: nunca quedan apagados sin explicación. Si los tocan sin escribir, se
+ * dice qué falta al lado y el cursor vuelve al campo.
+ */
+export function useFaltaTexto(idCampo: string, mensaje: string) {
+  const [visible, setVisible] = useState(false)
 
-function useEsApple() {
-  return useSyncExternalStore(
-    sinSuscripcion,
-    () => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent),
-    () => false,
-  )
+  const avisar = useCallback(() => {
+    setVisible(true)
+    document.getElementById(idCampo)?.focus()
+  }, [idCampo])
+
+  const ocultar = useCallback(() => setVisible(false), [])
+
+  return { falta: visible ? mensaje : null, avisar, ocultar }
 }
 
 interface Props {
@@ -59,7 +65,10 @@ interface Props {
   etiqueta: string
   valor: string
   onCambio: (valor: string) => void
-  /** Ctrl + Enter (⌘ + Enter en Mac) hace lo mismo que el botón principal. */
+  /**
+   * Ctrl + Enter (⌘ + Enter en Mac) hace lo mismo que el botón principal. No se anuncia en
+   * pantalla: a quien no usa atajos lo confundía, y el botón está siempre a la vista.
+   */
   onEnviar?: () => void
   /** Ayuda debajo de la etiqueta. */
   ayuda?: string
@@ -69,6 +78,8 @@ interface Props {
   etiquetaComoTitulo?: boolean
   /** Enfoca el campo al aparecer: solo cuando lo desplegó un toque del cliente. */
   enfocar?: boolean
+  /** Se intentó seguir sin escribir nada: el borde se marca. */
+  invalido?: boolean
 }
 
 export function AreaDeTexto({
@@ -81,9 +92,9 @@ export function AreaDeTexto({
   descritoPor,
   etiquetaComoTitulo = false,
   enfocar = false,
+  invalido = false,
 }: Props) {
   const campo = useRef<HTMLTextAreaElement>(null)
-  const esApple = useEsApple()
   const idAyuda = `${id}-ayuda`
 
   useEfectoAntesDePintar(() => {
@@ -133,14 +144,9 @@ export function AreaDeTexto({
         onChange={(evento) => onCambio(evento.target.value)}
         onKeyDown={alTeclear}
         aria-describedby={descripcion || undefined}
+        aria-invalid={invalido || undefined}
         rows={4}
       />
-      {onEnviar && (
-        // Se ve solo con teclado y mouse (globals.css): en el celular no aporta.
-        <p className="campo-atajo" aria-hidden="true">
-          {esApple ? '⌘' : 'Ctrl'} + Enter para enviar
-        </p>
-      )}
     </div>
   )
 }

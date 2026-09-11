@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { AreaDeTexto, useBorrador } from '../componentes/AreaDeTexto'
+import { AreaDeTexto, useBorrador, useFaltaTexto } from '../componentes/AreaDeTexto'
 import { Boton } from '../componentes/Boton'
 import { useEnvio, type PantallaDe } from '../componentes/Contexto'
 import { MensajeError } from '../componentes/Mensajes'
@@ -11,11 +11,18 @@ export function Pregunta({ pantalla }: { pantalla: PantallaDe<'pregunta'> }) {
   const { mandar, enCurso, ocupado, error } = useEnvio()
   const id = useId()
   const idPregunta = `${id}pregunta`
-  const completa = texto.trim() !== ''
+  const idRespuesta = `${id}respuesta`
+  const { falta, avisar, ocultar } = useFaltaTexto(idRespuesta, 'Escribí tu respuesta para seguir.')
 
   async function siguiente() {
-    if (!completa || ocupado) return
+    if (ocupado) return
+    if (!texto.trim()) return avisar()
     if (await mandar('siguiente', { tipo: 'respuesta', texto: texto.trim() })) descartar()
+  }
+
+  function escribir(valor: string) {
+    ocultar()
+    cambiar(valor)
   }
 
   return (
@@ -39,16 +46,17 @@ export function Pregunta({ pantalla }: { pantalla: PantallaDe<'pregunta'> }) {
         }}
       >
         <AreaDeTexto
-          id={`${id}respuesta`}
+          id={idRespuesta}
           etiqueta="Tu respuesta"
           valor={texto}
-          onCambio={cambiar}
+          onCambio={escribir}
           onEnviar={siguiente}
           descritoPor={idPregunta}
+          invalido={falta !== null}
         />
-        <MensajeError mensaje={error} />
+        <MensajeError mensaje={falta ?? error} />
         <div className="acciones">
-          <Boton type="submit" disabled={!completa || ocupado} enCurso={enCurso === 'siguiente'}>
+          <Boton type="submit" disabled={ocupado} enCurso={enCurso === 'siguiente'}>
             Siguiente
           </Boton>
         </div>

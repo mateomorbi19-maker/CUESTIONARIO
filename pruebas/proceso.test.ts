@@ -15,6 +15,7 @@ import {
   recibirEntrada,
   subirArchivos,
 } from '../lib/proceso'
+import { levantarServidor, textoDelMail } from './smtp-falso'
 
 /*
  * La capa que usan las rutas de la API, contra una base PGlite descartable. Ninguno de estos
@@ -23,6 +24,7 @@ import {
 process.env.DIR_DATOS = mkdtempSync(join(tmpdir(), 'cuestionario-proceso-'))
 delete process.env.DATABASE_URL
 delete process.env.SMTP_HOST
+delete process.env.URL_PUBLICA
 process.env.CODIGO_ACCESO = 'codigo-de-prueba'
 process.env.TOPE_CUESTIONARIOS_POR_DIA = '1000'
 
@@ -32,7 +34,14 @@ const rechazaCon = (estadoHttp: number) => (err: unknown) => {
   return true
 }
 
-const nuevo = () => empezarCuestionario({ codigo: 'codigo-de-prueba', negocio: 'Tapicería Norte', email: 'dueno@tapicerianorte.com' })
+const datosDe = (email: string) => ({ codigo: 'codigo-de-prueba', negocio: 'Tapicería Norte', email })
+
+/** Uno recién abierto: falla si en vez de abrirlo se retomó otro. */
+async function nuevo(email = 'dueno@tapicerianorte.com') {
+  const resultado = await empezarCuestionario(datosDe(email))
+  assert.ok('token' in resultado, 'se esperaba un cuestionario nuevo')
+  return resultado
+}
 
 function enMaterial(estado: EstadoCuestionario): EstadoCuestionario {
   return {
@@ -59,13 +68,23 @@ async function esperarQueTermine(token: string) {
   throw new Error('La entrada no terminó de procesarse.')
 }
 
+/** El primer link sale en segundo plano: se espera a que llegue para no confundirlo con otro. */
+async function esperarMails(mensajes: string[], cantidad: number) {
+  for (let intento = 0; intento < 100 && mensajes.length < cantidad; intento++) {
+    await new Promise((listo) => setTimeout(listo, 20))
+  }
+  assert.equal(mensajes.length, cantidad, `se esperaban ${cantidad} mails y llegaron ${mensajes.length}`)
+}
+
 describe('crear un cuestionario', () => {
   it('pide el código del link y devuelve el link personal', async () => {
-    await assert.rejects(empezarCuestionario({ codigo: 'otro', negocio: 'Tapicería Norte', email: 'dueno@tapicerianorte.com' }), rechazaCon(403))
+    await assert.rejects(empezarCuestionario({ ...datosDe('dueno@tapicerianorte.com'), codigo: 'otro' }), rechazaCon(403))
 
     const { token, url } = await nuevo()
     assert.equal(url, `/c/${token}`)
     const estado = estadoPublico(await leerCuestionario(token))
+    assert.equal(estado.negocio, 'Tapicería Norte')
+    assert.equal(estado.email, 'dueno@tapicerianorte.com')
     assert.equal(estado.etapa, 'triage')
     assert.equal(estado.procesando, false)
     assert.equal(estado.error, null)
@@ -85,6 +104,53 @@ describe('crear un cuestionario', () => {
 
   it('un token que no existe es 404', async () => {
     await assert.rejects(leerCuestionario('no-existe'), rechazaCon(404))
+  })
+})
+
+describe('volver a entrar con el mismo mail', () => {
+  it('sin correo configurado abre otro, porque no hay cómo mandarle el link', async () => {
+    const primero = await nuevo('sin-correo@ejemplo.test')
+    const segundo = await nuevo('sin-correo@ejemplo.test')
+    assert.notEqual(primero.token, segundo.token)
+  })
+
+  it('con correo le manda un link nuevo al que ya tenía empezado, sin romper el anterior', async () => {
+    const servidor = await levantarServidor()
+    Object.assign(process.env, {
+      SMTP_HOST: '127.0.0.1',
+      SMTP_PUERTO: String(servidor.puerto),
+      SMTP_REMITENTE: 'avisos@cuestionario.test',
+      SMTP_TLS: 'ninguno',
+      URL_PUBLICA: 'https://cuestionario.test',
+    })
+    try {
+      const primero = await nuevo('laura@panaderia.test')
+      await esperarMails(servidor.mensajes, 1)
+
+      const segundo = await empezarCuestionario(datosDe('Laura@Panaderia.test'))
+      assert.deepEqual(segundo, { retomado: true, email: 'laura@panaderia.test' })
+      await esperarMails(servidor.mensajes, 2)
+      const link = /https:\/\/cuestionario\.test\/c\/([A-Za-z0-9_-]+)/.exec(textoDelMail(servidor.mensajes[1]))
+      assert.ok(link, 'el mail para seguir tiene que traer el link')
+      assert.notEqual(link[1], primero.token)
+
+      const original = await leerCuestionario(primero.token)
+      assert.equal((await leerCuestionario(link[1])).id, original.id)
+
+      // Tres por hora: alcanza para quien lo perdió y frena a quien le quiera llenar la casilla a otro.
+      await empezarCuestionario(datosDe('laura@panaderia.test'))
+      await empezarCuestionario(datosDe('laura@panaderia.test'))
+      await assert.rejects(empezarCuestionario(datosDe('laura@panaderia.test')), rechazaCon(429))
+      await esperarMails(servidor.mensajes, 4)
+
+      // Uno terminado no se retoma: con ese mail se abre otro.
+      await guardarEstado(original, { ...original.estado, etapa: 'terminado' })
+      await nuevo('laura@panaderia.test')
+      await esperarMails(servidor.mensajes, 5)
+    } finally {
+      for (const nombre of ['SMTP_HOST', 'SMTP_PUERTO', 'SMTP_REMITENTE', 'SMTP_TLS', 'URL_PUBLICA']) delete process.env[nombre]
+      await servidor.cerrar()
+    }
   })
 })
 

@@ -16,15 +16,23 @@ Todas las respuestas son JSON. Los errores son `{ "error": "qué pasó y qué ha
 | Estado | Cuerpo |
 |---|---|
 | 201 | `{ "token": "...", "url": "/c/<token>" }` |
+| 200 | `{ "retomado": true, "email": "..." }`: ese mail ya tenía uno sin terminar y se le mandó el link para seguirlo |
 | 400 | Faltan datos o el mail no es válido |
 | 403 | El código no es el del link |
-| 429 | Se llegó al tope de cuestionarios nuevos del día |
+| 429 | Se llegó al tope de cuestionarios nuevos del día, o ya se le mandó el link para seguir tres veces en la última hora |
+| 503 | No se pudo mandar el mail con el link para seguir |
 
-Si el correo está configurado, se le manda al cliente su link personal. Si no, igual se crea.
+Si el correo está configurado, se le manda al cliente su link personal. Si además ese mail ya
+tiene un cuestionario sin terminar, no se abre otro: se crea un link nuevo para el mismo
+cuestionario y se le manda por mail. Los links anteriores siguen andando. Sin correo
+configurado, siempre se abre uno nuevo.
 
 ## Leer el estado
 
 `GET /api/cuestionarios/:token` → 200 `EstadoPublico` · 404 si el token no existe.
+
+`EstadoPublico` trae `negocio` y `email`: el inicio muestra de qué negocio es el cuestionario
+empezado, y «Seguir más tarde» dice a qué mail le llegó el link.
 
 ## Mandar una entrada
 

@@ -28,7 +28,7 @@ export interface Cuestionario {
 export class ErrorCuestionario extends Error {
   constructor(
     message: string,
-    readonly estadoHttp: 400 | 403 | 404 | 409 | 429,
+    readonly estadoHttp: 400 | 403 | 404 | 409 | 429 | 503,
   ) {
     super(message)
     this.name = 'ErrorCuestionario'
@@ -92,8 +92,7 @@ export async function crearCuestionario(negocio: string, email: string): Promise
     throw new ErrorCuestionario('El mail no tiene un formato válido. Revisá que no tenga espacios ni acentos.', 400)
   }
 
-  // 24 bytes al azar: imposible de adivinar, y en base64url entra entero en un link.
-  const token = randomBytes(24).toString('base64url')
+  const token = nuevoToken()
   const estado = estadoInicial(nombre)
   const base = await db()
   const { rows } = await base.consulta<Fila>(
@@ -105,11 +104,46 @@ export async function crearCuestionario(negocio: string, email: string): Promise
   return { cuestionario: desdeFila(rows[0]), token }
 }
 
+/** 24 bytes al azar: imposible de adivinar, y en base64url entra entero en un link. */
+function nuevoToken(): string {
+  return randomBytes(24).toString('base64url')
+}
+
+/**
+ * El token del link original o el de uno que se pidió después desde el inicio. Los dos entran al
+ * mismo cuestionario: pedir el link de nuevo no deja afuera al dispositivo que ya lo tenía.
+ */
 export async function buscarPorToken(token: string): Promise<Cuestionario | null> {
   if (!token) return null
   const base = await db()
-  const { rows } = await base.consulta<Fila>(`SELECT ${COLUMNAS} FROM cuestionarios WHERE token_sha256 = $1`, [hashDe(token)])
+  const { rows } = await base.consulta<Fila>(
+    `SELECT ${COLUMNAS} FROM cuestionarios
+      WHERE token_sha256 = $1
+         OR id = (SELECT cuestionario_id FROM accesos WHERE token_sha256 = $1)`,
+    [hashDe(token)],
+  )
   return rows[0] ? desdeFila(rows[0]) : null
+}
+
+/** El último sin terminar de ese mail. */
+export async function buscarEmpezadoPorEmail(email: string): Promise<Cuestionario | null> {
+  const base = await db()
+  const { rows } = await base.consulta<Fila>(
+    `SELECT ${COLUMNAS} FROM cuestionarios
+      WHERE lower(email) = lower($1) AND etapa <> 'terminado'
+      ORDER BY actualizado_en DESC
+      LIMIT 1`,
+    [email.trim()],
+  )
+  return rows[0] ? desdeFila(rows[0]) : null
+}
+
+/** Un link más para un cuestionario que ya existe. Los anteriores siguen andando. */
+export async function crearAcceso(cuestionarioId: string): Promise<string> {
+  const token = nuevoToken()
+  const base = await db()
+  await base.consulta('INSERT INTO accesos (token_sha256, cuestionario_id) VALUES ($1, $2)', [hashDe(token), cuestionarioId])
+  return token
 }
 
 export async function buscarPorId(id: string): Promise<Cuestionario | null> {

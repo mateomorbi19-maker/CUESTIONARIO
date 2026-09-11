@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Suspense,
+  useEffect,
   useId,
   useRef,
   useState,
@@ -16,14 +17,19 @@ import {
   crearCuestionario,
   escucharAlmacen,
   guardarToken,
+  leerEstado,
   leerTokenGuardado,
+  olvidarToken,
 } from '@/lib/cliente-api'
+import type { EstadoPublico } from '@/lib/estado-publico'
+import { BarraDeProgreso } from './c/[token]/componentes/BarraDeProgreso'
+import { IconoCheck } from './c/[token]/componentes/Iconos'
 
 const PATRON_MAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 /**
- * Inicio. Se llega con el link general (`?c=`), volviendo sin link a un dispositivo donde ya se
- * empezó, o sin nada.
+ * Inicio. Se llega con el link general (`?c=`), volviendo a un dispositivo donde ya se empezó, o
+ * sin nada. Hay una sola cosa para hacer a la vista: empezar, o seguir donde quedó.
  */
 export default function Inicio() {
   return (
@@ -46,10 +52,25 @@ function ContenidoInicio() {
     leerTokenGuardado,
     sinTokenEnServidor,
   )
+  // El evento storage solo avisa de cambios hechos en otras pestañas: lo que se deja de lado en
+  // esta (terminado, link que ya no existe o «empezar uno nuevo») se recuerda acá.
+  const [descartado, setDescartado] = useState<string | null>(null)
 
-  if (codigo) return <FormularioInicio codigo={codigo} tokenGuardado={tokenGuardado ?? null} />
   if (tokenGuardado === undefined) return null
-  if (tokenGuardado) return <Retomar token={tokenGuardado} />
+  const token = tokenGuardado && tokenGuardado !== descartado ? tokenGuardado : null
+
+  if (token) {
+    return (
+      <Empezado
+        key={token}
+        token={token}
+        // Sin el código del link general no se puede abrir otro: el botón no tendría a dónde ir.
+        puedeEmpezarOtro={codigo !== null}
+        onDescartar={setDescartado}
+      />
+    )
+  }
+  if (codigo) return <FormularioInicio codigo={codigo} />
   return <SinLink />
 }
 
@@ -57,12 +78,78 @@ function rutaDe(token: string) {
   return `/c/${encodeURIComponent(token)}`
 }
 
+interface PropsEmpezado {
+  token: string
+  puedeEmpezarOtro: boolean
+  onDescartar: (token: string) => void
+}
+
+/** Ya hay uno empezado en este dispositivo: lo primero es seguirlo, no abrir otro. */
+function Empezado({ token, puedeEmpezarOtro, onDescartar }: PropsEmpezado) {
+  const [estado, setEstado] = useState<EstadoPublico | null>(null)
+
+  useEffect(() => {
+    let vigente = true
+    leerEstado(token)
+      .then((leido) => {
+        if (!vigente) return
+        if (leido.etapa !== 'terminado') {
+          setEstado(leido)
+          return
+        }
+        olvidarToken(token)
+        onDescartar(token)
+      })
+      .catch((err: unknown) => {
+        // Sin conexión igual se puede tocar «Seguir»: la pantalla del cuestionario sabe reintentar.
+        if (!vigente || !(err instanceof ErrorApi) || err.estado !== 404) return
+        olvidarToken(token)
+        onDescartar(token)
+      })
+    return () => {
+      vigente = false
+    }
+  }, [token, onDescartar])
+
+  return (
+    <main className="hoja inicio">
+      <div className="inicio-cabeza">
+        <h1 className="inicio-titulo">Tenés un cuestionario empezado</h1>
+        <p>Todo lo que contestaste está guardado. Seguís desde la pregunta donde quedaste.</p>
+      </div>
+
+      {estado && (
+        <div className="empezado">
+          <p className="empezado-negocio">{estado.negocio}</p>
+          <BarraDeProgreso porcentaje={estado.progreso.porcentaje} texto={estado.progreso.texto} />
+        </div>
+      )}
+
+      <div className="acciones">
+        <Link className="boton boton-principal" href={rutaDe(token)}>
+          Seguir donde quedé
+        </Link>
+      </div>
+
+      {puedeEmpezarOtro && (
+        <button
+          type="button"
+          className="boton boton-texto boton-chico"
+          onClick={() => onDescartar(token)}
+        >
+          Empezar un cuestionario nuevo
+        </button>
+      )}
+    </main>
+  )
+}
+
 interface ErroresFormulario {
   negocio?: string
   email?: string
 }
 
-function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuardado: string | null }) {
+function FormularioInicio({ codigo }: { codigo: string }) {
   const router = useRouter()
   const id = useId()
   const campoNegocio = useRef<HTMLInputElement>(null)
@@ -72,6 +159,7 @@ function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuar
   const [errores, setErrores] = useState<ErroresFormulario>({})
   const [errorServidor, setErrorServidor] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
+  const [linkEnviadoA, setLinkEnviadoA] = useState<string | null>(null)
 
   async function empezar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
@@ -97,9 +185,15 @@ function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuar
 
     setEnviando(true)
     try {
-      const { token, url } = await crearCuestionario(datos)
-      guardarToken(token)
+      const resultado = await crearCuestionario(datos)
+      if ('retomado' in resultado) {
+        setLinkEnviadoA(resultado.email)
+        setEnviando(false)
+        return
+      }
+      guardarToken(resultado.token)
       // La url la arma nuestro servidor, pero router.push ejecutaría un «javascript:»: solo rutas propias.
+      const { url, token } = resultado
       router.push(url.startsWith('/') && !url.startsWith('//') ? url : rutaDe(token))
       // «enviando» queda prendido a propósito: un segundo toque durante la navegación crearía
       // otro cuestionario.
@@ -118,6 +212,8 @@ function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuar
     campoEmail.current?.focus()
   }
 
+  if (linkEnviadoA) return <LinkEnviado email={linkEnviadoA} />
+
   const idNegocio = `${id}negocio`
   const idEmail = `${id}email`
 
@@ -125,19 +221,23 @@ function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuar
     <main className="hoja inicio">
       <div className="inicio-cabeza">
         <h1 className="inicio-titulo">Contanos cómo vendés hoy</h1>
-        <p>
-          Son preguntas sobre cómo atendés los chats de tu negocio. Podés cortar cuando quieras: se
-          guarda todo y seguís con el mismo link.
-        </p>
-        <p className="inicio-duracion">Lleva alrededor de una hora, en partes.</p>
+        <p>Son preguntas sobre cómo atendés hoy los chats de tu negocio.</p>
       </div>
 
-      {tokenGuardado && (
-        <p className="aviso">
-          Ya empezaste un cuestionario en este dispositivo.{' '}
-          <Link href={rutaDe(tokenGuardado)}>Seguir donde quedé</Link>
-        </p>
-      )}
+      <ul className="garantias">
+        <li>
+          <IconoCheck />
+          Se guarda solo, respuesta por respuesta.
+        </li>
+        <li>
+          <IconoCheck />
+          Podés cerrar y seguir cuando quieras, desde el celular o la compu.
+        </li>
+        <li>
+          <IconoCheck />
+          Lleva alrededor de una hora, en partes.
+        </li>
+      </ul>
 
       <form className="formulario" noValidate onSubmit={empezar}>
         <div className="campo">
@@ -169,7 +269,7 @@ function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuar
             Tu mail
           </label>
           <p className="campo-ayuda" id={`${idEmail}-ayuda`}>
-            Te mandamos tu link personal, para seguir desde cualquier dispositivo.
+            Ahí te llega el link para seguir. Si ya empezaste antes, poné el mismo mail.
           </p>
           <input
             ref={campoEmail}
@@ -216,17 +316,20 @@ function FormularioInicio({ codigo, tokenGuardado }: { codigo: string; tokenGuar
   )
 }
 
-function Retomar({ token }: { token: string }) {
+/** Ese mail ya tenía uno sin terminar: no se abrió otro, se le mandó el link para seguirlo. */
+function LinkEnviado({ email }: { email: string }) {
   return (
-    <main className="hoja tarjeta inicio">
+    <main className="hoja inicio">
       <div className="inicio-cabeza">
-        <h1 className="inicio-titulo">Tenés un cuestionario empezado</h1>
-        <p>Lo que contestaste quedó guardado. Seguís desde donde lo dejaste.</p>
-      </div>
-      <div className="acciones">
-        <Link className="boton boton-principal" href={rutaDe(token)}>
-          Seguir donde quedé
-        </Link>
+        <span className="inicio-marca" aria-hidden="true">
+          <IconoCheck width={28} height={28} />
+        </span>
+        <h1 className="inicio-titulo">Ya tenías un cuestionario empezado</h1>
+        <p>
+          Te mandamos el link a <strong>{email}</strong> para que sigas desde la pregunta donde
+          quedaste. Está todo guardado.
+        </p>
+        <p className="inicio-nota">Si en unos minutos no lo ves, revisá la carpeta de spam.</p>
       </div>
     </main>
   )
@@ -237,7 +340,10 @@ function SinLink() {
     <main className="hoja inicio">
       <div className="inicio-cabeza">
         <h1 className="inicio-titulo">Cuestionario de tu negocio</h1>
-        <p>Este cuestionario se abre con el link que te pasaron.</p>
+        <p>Para empezar, abrí el link que te pasaron.</p>
+        <p className="inicio-nota">
+          Si ya empezaste, abrí el link que te llegó por mail: seguís desde donde quedaste.
+        </p>
       </div>
     </main>
   )

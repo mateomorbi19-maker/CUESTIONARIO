@@ -98,8 +98,11 @@ function rutaCuestionario(token: string): string {
   return `/api/cuestionarios/${encodeURIComponent(token)}`
 }
 
+/** Nuevo, o el aviso de que ese mail ya tenía uno empezado y se le mandó el link para seguir. */
+export type Inicio = { token: string; url: string } | { retomado: true; email: string }
+
 export function crearCuestionario(datos: { codigo: string; negocio: string; email: string }) {
-  return pedir<{ token: string; url: string }>('/api/cuestionarios', {
+  return pedir<Inicio>('/api/cuestionarios', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(datos),

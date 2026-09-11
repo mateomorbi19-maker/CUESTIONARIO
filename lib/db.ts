@@ -270,6 +270,17 @@ ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS aviso_error      TEXT;
 
 -- Con qué vida se escribió la caché: una hora cuesta el doble que cinco minutos.
 ALTER TABLE llamadas_ia ADD COLUMN IF NOT EXISTS cache TEXT;
+
+-- Links extra para seguir un cuestionario, cuando el cliente lo pide de nuevo desde el inicio.
+-- El token original no se puede reenviar porque solo se guarda su hash, y cambiarlo dejaría
+-- afuera al dispositivo donde ya lo tenía abierto.
+CREATE TABLE IF NOT EXISTS accesos (
+  token_sha256    TEXT PRIMARY KEY,
+  cuestionario_id TEXT NOT NULL REFERENCES cuestionarios(id) ON DELETE CASCADE,
+  creado_en       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Para encontrar el cuestionario empezado de un mail sin recorrer la tabla.
+CREATE INDEX IF NOT EXISTS cuestionarios_email_idx ON cuestionarios (lower(email));
 `
 
 /**
@@ -279,7 +290,7 @@ ALTER TABLE llamadas_ia ADD COLUMN IF NOT EXISTS cache TEXT;
  * el contador, y si alguien no lo hace /api/salud informa "esquema creado" aunque la tabla
  * nueva haya fallado.
  */
-export const TABLAS = ['cuestionarios', 'llamadas_ia'] as const
+export const TABLAS = ['cuestionarios', 'llamadas_ia', 'accesos'] as const
 
 function asegurarEsquema(b: Base): Promise<void> {
   if (!globalParaBase._esquemaListo) {

@@ -27,7 +27,8 @@ export function LinkInvalido() {
       </h1>
       <p>
         Puede que se haya cortado al copiarlo. Abrí de nuevo el link completo que te llegó por
-        mail, o pedíselo a quien te lo pasó.
+        mail. Si no lo encontrás, entrá al link que te pasaron al principio y poné el mismo mail:
+        te mandamos uno nuevo para seguir donde quedaste.
       </p>
     </section>
   )

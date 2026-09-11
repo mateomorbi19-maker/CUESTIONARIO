@@ -241,6 +241,7 @@ function VarianteDemo({ variante, rechazar, compacto = false }: PropsVariante) {
       <VistaCuestionario
         estado={estado}
         acciones={acciones}
+        guardando={trabajos > 0}
         aviso={variante.aviso ?? null}
         marcaGuardado={marcaGuardado}
         ultimaEntrada={ultimaEntrada}

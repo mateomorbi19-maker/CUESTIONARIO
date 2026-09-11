@@ -21,6 +21,8 @@ export type ModoInicial = 'correccion' | 'cambio' | 'no_aplica'
 interface Props {
   estado: EstadoPublico
   acciones: Omit<AccionesCuestionario, 'esperaEnLinea'>
+  /** Un envío en camino que el servidor todavía no aceptó: arriba dice «Guardando…». */
+  guardando?: boolean
   aviso?: string | null
   marcaGuardado?: number
   sinConexion?: boolean
@@ -40,6 +42,7 @@ interface Props {
 export function VistaCuestionario({
   estado,
   acciones,
+  guardando = false,
   aviso = null,
   marcaGuardado = 0,
   sinConexion = false,
@@ -85,7 +88,9 @@ export function VistaCuestionario({
     <ProveedorCuestionario acciones={accionesVista}>
       <Marco
         progreso={pantalla.tipo === 'gracias' ? null : estado.progreso}
+        guardando={guardando}
         marcaGuardado={marcaGuardado}
+        email={estado.email}
         aviso={aviso}
         centrado={vista === 'pantalla' && pantalla.tipo === 'gracias'}
         compacto={compacto}

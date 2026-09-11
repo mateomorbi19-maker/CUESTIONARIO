@@ -268,6 +268,7 @@ export default function Cuestionario({ token }: { token: string }) {
     <VistaCuestionario
       estado={carga.estado}
       acciones={acciones}
+      guardando={trabajos > 0}
       aviso={aviso}
       marcaGuardado={marcaGuardado}
       sinConexion={sinConexion}

@@ -2,12 +2,14 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ErrorArchivo, leerArchivo } from './archivos'
-import { avisarTerminado, mandarLinkAlCliente } from './avisos'
+import { avisarTerminado, mandarLinkAlCliente, mandarLinkParaSeguir, puedeMandarLinks } from './avisos'
 import { clienteClaude, ErrorIa, type ClienteIa, type PedidoJson } from './claude'
 import {
+  buscarEmpezadoPorEmail,
   buscarPorToken,
   contarCreadosDesde,
   contarLlamadas,
+  crearAcceso,
   crearCuestionario,
   ErrorCuestionario,
   estaProcesando,
@@ -47,6 +49,8 @@ export function estadoPublico(cuestionario: Cuestionario): EstadoPublico {
   const error = vencido ? 'Tu última respuesta tardó demasiado en procesarse. Tocá "Reintentar": no se perdió nada.' : cuestionario.ultimoError
   return {
     version: cuestionario.version,
+    negocio: cuestionario.negocio,
+    email: cuestionario.email,
     etapa: cuestionario.estado.etapa,
     procesando,
     mensajeEspera: procesando && cuestionario.entradaPendiente ? mensajeEspera(cuestionario.estado, cuestionario.entradaPendiente) : null,
@@ -61,7 +65,26 @@ function hash(texto: string): Buffer {
   return createHash('sha256').update(texto).digest()
 }
 
-export async function empezarCuestionario(datos: { codigo: string; negocio: string; email: string }): Promise<{ token: string; url: string }> {
+/** Nuevo, o el aviso de que ese mail ya tenía uno empezado y se le mandó el link para seguir. */
+export type ResultadoInicio = { token: string; url: string } | { retomado: true; email: string }
+
+// Pedir el link de nuevo: tres veces por hora alcanzan para quien lo perdió y frenan a quien quiera
+// llenarle la casilla a otro desde el link general. En memoria y no en la base: hay un solo proceso
+// y, si se reinicia, que la cuenta empiece de cero no le hace daño a nadie.
+const REENVIOS_POR_HORA = 3
+const reenvios = new Map<string, number[]>()
+
+function puedeReenviar(email: string): boolean {
+  const clave = email.toLowerCase()
+  const haceUnaHora = Date.now() - 60 * 60_000
+  const recientes = (reenvios.get(clave) ?? []).filter((momento) => momento > haceUnaHora)
+  const puede = recientes.length < REENVIOS_POR_HORA
+  if (puede) recientes.push(Date.now())
+  reenvios.set(clave, recientes)
+  return puede
+}
+
+export async function empezarCuestionario(datos: { codigo: string; negocio: string; email: string }): Promise<ResultadoInicio> {
   const codigo = process.env.CODIGO_ACCESO?.trim()
   if (!codigo) {
     // En producción sin código cualquiera que encuentre la página gastaría la API.
@@ -70,6 +93,29 @@ export async function empezarCuestionario(datos: { codigo: string; negocio: stri
     }
   } else if (!timingSafeEqual(hash(datos.codigo.trim()), hash(codigo))) {
     throw new ErrorCuestionario('El link no es válido. Pedile el link de nuevo a quien te lo pasó.', 403)
+  }
+
+  // Si ese mail ya tiene uno sin terminar, se le manda el link en vez de abrir otro: empezar de cero
+  // en otro dispositivo le haría contestar todo de nuevo. Sin correo no hay cómo mandárselo y se
+  // abre uno nuevo, como siempre.
+  if (puedeMandarLinks()) {
+    const empezado = await buscarEmpezadoPorEmail(datos.email)
+    if (empezado) {
+      if (!puedeReenviar(empezado.email)) {
+        throw new ErrorCuestionario(
+          `Ya te mandamos el link a ${empezado.email} hace un rato. Revisá tu mail, también la carpeta de spam.`,
+          429,
+        )
+      }
+      const token = await crearAcceso(empezado.id)
+      try {
+        await mandarLinkParaSeguir(empezado, token)
+      } catch (err) {
+        console.error(`[link ${empezado.id}] no se pudo mandar el link para seguir:`, err)
+        throw new ErrorCuestionario('No pudimos mandarte el mail con el link para seguir. Probá de nuevo en unos minutos.', 503)
+      }
+      return { retomado: true, email: empezado.email }
+    }
   }
 
   const tope = numeroDeEntorno('TOPE_CUESTIONARIOS_POR_DIA', 20)

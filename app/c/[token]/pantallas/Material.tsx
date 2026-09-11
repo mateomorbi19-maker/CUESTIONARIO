@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { AreaDeTexto, useBorrador } from '../componentes/AreaDeTexto'
+import { AreaDeTexto, useBorrador, useFaltaTexto } from '../componentes/AreaDeTexto'
 import { Boton } from '../componentes/Boton'
 import { useCuestionario, useEnvio, type PantallaDe } from '../componentes/Contexto'
 import { EsperaEnLinea } from '../componentes/Espera'
@@ -18,6 +18,8 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
   const { texto, cambiar, descartar } = useBorrador('material')
   const [subiendo, setSubiendo] = useState(false)
   const id = useId()
+  const idTexto = `${id}texto`
+  const { falta, avisar, ocultar } = useFaltaTexto(idTexto, 'Pegá un texto antes de tocar «Agregar».')
   const bloqueado = ocupado || subiendo
   const cantidad = pantalla.archivos.length + pantalla.textos.length
 
@@ -27,9 +29,15 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
   const errorFinal = errorAgregar || errorLista ? null : error
 
   async function agregarTexto() {
+    if (bloqueado) return
     const limpio = texto.trim()
-    if (!limpio || bloqueado) return
+    if (!limpio) return avisar()
     if (await mandar('agregar', { tipo: 'texto_material', texto: limpio })) descartar()
+  }
+
+  function escribir(valor: string) {
+    ocultar()
+    cambiar(valor)
   }
 
   return (
@@ -82,20 +90,21 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
         }}
       >
         <AreaDeTexto
-          id={`${id}texto`}
+          id={idTexto}
           etiqueta="Pegar un texto"
           etiquetaComoTitulo
           ayuda="Un chat copiado, tu lista de precios, los mensajes que mandás siempre igual."
           valor={texto}
-          onCambio={cambiar}
+          onCambio={escribir}
           onEnviar={agregarTexto}
+          invalido={falta !== null}
         />
-        <MensajeError mensaje={errorAgregar} />
+        <MensajeError mensaje={falta ?? errorAgregar} />
         <div className="acciones">
           <Boton
             type="submit"
             variante="secundario"
-            disabled={!texto.trim() || bloqueado}
+            disabled={bloqueado}
             enCurso={enCurso === 'agregar'}
             textoEnCurso="Agregando…"
           >

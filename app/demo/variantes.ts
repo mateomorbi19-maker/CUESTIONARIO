@@ -30,6 +30,8 @@ function estado(
 ): EstadoPublico {
   return {
     version: 1,
+    negocio: 'Panadería de Prueba',
+    email: 'dueno@ejemplo.com',
     etapa,
     procesando: false,
     mensajeEspera: null,

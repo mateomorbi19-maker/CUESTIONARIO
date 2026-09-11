@@ -56,6 +56,10 @@ Es el mismo link para todos. Cada cliente pone el nombre de su negocio y su mail
 arma su cuestionario y le manda por mail su link personal para seguir después. Cuando termina,
 te llega a `MAIL_AVISO` un mail con `examen.md`, `brief-comercial.md`, `CLAUDE.md` y `cierre.md`.
 
+Si un cliente perdió su link o quiere seguir desde otro dispositivo, que entre a este mismo link
+general y ponga el mismo mail: no se le abre otro cuestionario, le llega por mail un link para
+seguir donde quedó.
+
 Antes de mandárselo a un cliente real, completalo vos una vez de punta a punta con un negocio
 inventado: así confirmás que el mail con los entregables llega.
 

@@ -18,19 +18,43 @@ function urlPublica(): string | null {
   return url || null
 }
 
+/** Sin correo o sin URL pública no hay link que mandar. */
+export function puedeMandarLinks(): boolean {
+  return !faltaParaCorreo() && urlPublica() !== null
+}
+
 export async function mandarLinkAlCliente(email: string, negocio: string, token: string): Promise<void> {
-  const base = urlPublica()
-  // Sin correo o sin URL pública no hay link que mandar: el cliente igual lo tiene en pantalla.
-  if (faltaParaCorreo() || !base) return
+  // Si no se puede, el cliente igual tiene el cuestionario abierto en pantalla.
+  if (!puedeMandarLinks()) return
   await enviarCorreo({
     para: email,
     asunto: `Tu cuestionario — ${negocio}`,
     cuerpo: `Hola.
 
 Este es tu link para completar el cuestionario de ${negocio}:
-${base}/c/${token}
+${urlPublica()}/c/${token}
 
-Podés cortar cuando quieras: se guarda todo y seguís desde el mismo link.
+Se guarda solo, respuesta por respuesta. Podés cerrar cuando quieras y seguir después desde este mismo link, en el celular o en la compu.
+
+Guardá este mail para tenerlo a mano.
+`,
+  })
+}
+
+/** Cuando lo pide de nuevo desde el inicio. A diferencia del primero, si falla tiene que saberse. */
+export async function mandarLinkParaSeguir(cuestionario: Cuestionario, token: string): Promise<void> {
+  if (!puedeMandarLinks()) throw new Error('Falta el correo o URL_PUBLICA: no hay cómo mandar el link para seguir.')
+  await enviarCorreo({
+    para: cuestionario.email,
+    asunto: `Seguí tu cuestionario — ${cuestionario.negocio}`,
+    cuerpo: `Hola.
+
+Este es el link para seguir el cuestionario de ${cuestionario.negocio}:
+${urlPublica()}/c/${token}
+
+Está todo guardado: seguís desde la pregunta donde quedaste.
+
+Si no lo pediste vos, no hace falta que hagas nada.
 `,
   })
 }

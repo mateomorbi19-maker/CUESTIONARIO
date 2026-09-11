@@ -197,26 +197,43 @@ strong {
   }
 }
 
-/* ---------- Avance y «Guardado» ---------- */
+/* ---------- Cabecera: «Todo guardado», «Seguir más tarde» y avance ---------- */
+
+.cabecera {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cabecera-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
 
 .progreso {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
 
 .progreso-fila {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 1rem;
-  min-height: 1.5rem;
 }
 
-.progreso-texto {
+.progreso-texto,
+.progreso-porcentaje {
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.4;
   color: var(--tinta-suave);
+}
+
+.progreso-porcentaje {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .progreso-barra {
@@ -234,39 +251,31 @@ strong {
   transition: width 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 
+/* Siempre a la vista: la duda más común en un formulario largo es si se puede cerrar. */
 .guardado {
   display: flex;
-  flex: none;
   align-items: center;
-  min-height: 1.5rem;
-  font-size: 0.875rem;
+  min-height: 2.25rem;
+  font-size: 0.9375rem;
   font-weight: 600;
-  color: var(--acento);
+  color: var(--tinta-suave);
   white-space: nowrap;
 }
 
 .guardado-marca {
   display: inline-flex;
   align-items: center;
-  gap: 0.3rem;
-  animation: guardado 3.2s ease both;
+  gap: 0.35rem;
+  color: var(--acento);
+  animation: aparecer 0.5s ease both;
 }
 
-@keyframes guardado {
-  0% {
-    opacity: 0;
-    transform: translateY(2px);
-  }
-  8% {
-    opacity: 1;
-    transform: none;
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
+/* Con el doble de clase: .boton, más abajo, fija alto y relleno para todos los botones. */
+.boton.boton-compacto {
+  flex: none;
+  min-height: 2.25rem;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.9375rem;
 }
 
 /* ---------- Textos de cada pantalla ---------- */
@@ -370,19 +379,6 @@ strong {
   color: var(--error);
 }
 
-.campo-atajo {
-  display: none;
-  font-size: 0.8125rem;
-  color: var(--tinta-suave);
-  text-align: right;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .campo-atajo {
-    display: block;
-  }
-}
-
 .area-texto,
 .entrada-texto {
   display: block;
@@ -425,6 +421,7 @@ strong {
   box-shadow: 0 0 0 3px rgb(30 91 75 / 0.22);
 }
 
+.area-texto[aria-invalid='true'],
 .entrada-texto[aria-invalid='true'] {
   border-color: var(--error);
 }
@@ -1145,14 +1142,109 @@ p.aviso {
   text-wrap: balance;
 }
 
-.inicio-duracion {
+.inicio-nota {
+  font-size: 0.9375rem;
   color: var(--tinta-suave);
+}
+
+.inicio-marca {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 50%;
+  background: var(--acento-suave);
+  color: var(--acento);
+}
+
+/* Lo que tranquiliza antes de empezar: que se guarda solo y que se puede cortar. */
+.garantias {
+  display: grid;
+  gap: 0.6rem;
+  padding: 1rem 1.1rem;
+  list-style: none;
+  border-radius: var(--radio);
+  background: var(--acento-suave);
+  color: var(--acento-oscuro);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.garantias li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.garantias svg {
+  flex: none;
+  margin-top: 0.05rem;
+}
+
+.empezado {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  background: var(--papel);
+}
+
+.empezado-negocio {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 @media (min-width: 48rem) {
   .inicio-titulo {
     font-size: 2.1rem;
   }
+}
+
+/* ---------- «Seguir más tarde» ---------- */
+
+.dialogo {
+  width: min(28rem, calc(100% - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 1.75rem 1.5rem 1.5rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-grande);
+  background: var(--papel);
+  color: var(--tinta);
+  box-shadow: 0 24px 60px -20px rgb(40 30 10 / 0.45);
+}
+
+/* Solo abierto: cerrado, el navegador lo oculta con display: none y no hay que pisarlo. */
+.dialogo[open] {
+  display: grid;
+  gap: 1rem;
+}
+
+.dialogo::backdrop {
+  background: rgb(31 28 23 / 0.45);
+}
+
+.dialogo-marca {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  background: var(--acento-suave);
+  color: var(--acento);
+}
+
+.dialogo-titulo {
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.dialogo-nota {
+  font-size: 0.9375rem;
+  color: var(--tinta-suave);
 }
 
 /* ---------- Galería de /demo (solo en desarrollo) ---------- */

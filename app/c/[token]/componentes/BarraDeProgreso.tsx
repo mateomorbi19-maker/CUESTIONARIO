@@ -1,13 +1,9 @@
-import type { ReactNode } from 'react'
-
 interface Props {
   porcentaje: number
   texto: string
-  /** Lo que va a la derecha del texto, en la misma línea (el «Guardado»). */
-  accesorio?: ReactNode
 }
 
-export function BarraDeProgreso({ porcentaje, texto, accesorio }: Props) {
+export function BarraDeProgreso({ porcentaje, texto }: Props) {
   // Acotado por las dudas: un número raro del servidor no puede desbordar la barra.
   const valor = Number.isFinite(porcentaje) ? Math.min(100, Math.max(0, Math.round(porcentaje))) : 0
 
@@ -15,7 +11,9 @@ export function BarraDeProgreso({ porcentaje, texto, accesorio }: Props) {
     <div className="progreso">
       <div className="progreso-fila">
         <p className="progreso-texto">{texto}</p>
-        {accesorio}
+        <p className="progreso-porcentaje" aria-hidden="true">
+          {valor} %
+        </p>
       </div>
       <div
         className="progreso-barra"

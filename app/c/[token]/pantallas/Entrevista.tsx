@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type RefObject } from 'react'
 import type { Propuesta } from '@/lib/motor/tipos'
-import { AreaDeTexto, useBorrador } from '../componentes/AreaDeTexto'
+import { AreaDeTexto, useBorrador, useFaltaTexto } from '../componentes/AreaDeTexto'
 import { Boton } from '../componentes/Boton'
 import { useEnvio, type PantallaDe } from '../componentes/Contexto'
 import { MensajeError } from '../componentes/Mensajes'
@@ -33,6 +33,13 @@ export function Entrevista({ pantalla, modoInicial = 'responder' }: Props) {
   const botonNoAplica = useRef<HTMLButtonElement>(null)
   const id = useId()
   const idPregunta = `${id}pregunta`
+  const idRespuesta = `${id}respuesta`
+  const idMotivo = `${id}motivo`
+  const faltaRespuesta = useFaltaTexto(
+    idRespuesta,
+    'Escribí tu respuesta para seguir. Si no lo sabés, tocá «No lo sé».',
+  )
+  const faltaMotivo = useFaltaTexto(idMotivo, 'Contá por qué no aplica a tu negocio para seguir.')
 
   function cambiarModo(nuevo: Modo, devolverFocoA?: RefObject<HTMLButtonElement | null>) {
     setModo(nuevo)
@@ -42,15 +49,27 @@ export function Entrevista({ pantalla, modoInicial = 'responder' }: Props) {
     if (devolverFocoA) window.setTimeout(() => devolverFocoA.current?.focus(), 0)
   }
 
+  function escribirRespuesta(valor: string) {
+    faltaRespuesta.ocultar()
+    respuesta.cambiar(valor)
+  }
+
+  function escribirMotivo(valor: string) {
+    faltaMotivo.ocultar()
+    motivo.cambiar(valor)
+  }
+
   async function mandarRespuesta() {
+    if (ocupado) return
     const limpio = respuesta.texto.trim()
-    if (!limpio || ocupado) return
+    if (!limpio) return faltaRespuesta.avisar()
     if (await mandar('respuesta', { tipo: 'respuesta', texto: limpio })) respuesta.descartar()
   }
 
   async function mandarMotivo() {
+    if (ocupado) return
     const limpio = motivo.texto.trim()
-    if (!limpio || ocupado) return
+    if (!limpio) return faltaMotivo.avisar()
     if (await mandar('no_aplica', { tipo: 'no_aplica', texto: limpio })) motivo.descartar()
   }
 
@@ -110,32 +129,29 @@ export function Entrevista({ pantalla, modoInicial = 'responder' }: Props) {
           {modo === 'cambio' && propuesta && <Cita propuesta={propuesta} />}
           {bloqueRepregunta}
           <AreaDeTexto
-            id={`${id}respuesta`}
+            id={idRespuesta}
             etiqueta={modo === 'cambio' ? 'Escribí cómo es ahora' : 'Tu respuesta'}
             ayuda={formato === 'texto_literal' ? AYUDA_LITERAL : undefined}
             valor={respuesta.texto}
-            onCambio={respuesta.cambiar}
+            onCambio={escribirRespuesta}
             onEnviar={mandarRespuesta}
             descritoPor={idPregunta}
             enfocar={enfocar && modo === 'cambio'}
+            invalido={faltaRespuesta.falta !== null}
           />
           {modo === 'cambio' && propuesta && !respuesta.texto && (
             // Si cambió una frase de un texto largo, reescribirlo entero desde el celular es mucho.
             <button
               type="button"
               className="boton boton-texto boton-chico"
-              onClick={() => respuesta.cambiar(propuesta.texto)}
+              onClick={() => escribirRespuesta(propuesta.texto)}
             >
               Copiar el texto de arriba para editarlo
             </button>
           )}
-          <MensajeError mensaje={error} />
+          <MensajeError mensaje={faltaRespuesta.falta ?? error} />
           <div className="acciones">
-            <Boton
-              type="submit"
-              disabled={!respuesta.texto.trim() || ocupado}
-              enCurso={enCurso === 'respuesta'}
-            >
+            <Boton type="submit" disabled={ocupado} enCurso={enCurso === 'respuesta'}>
               Siguiente
             </Boton>
             {modo === 'cambio' && (
@@ -184,21 +200,18 @@ export function Entrevista({ pantalla, modoInicial = 'responder' }: Props) {
           }}
         >
           <AreaDeTexto
-            id={`${id}motivo`}
+            id={idMotivo}
             etiqueta="¿Por qué no aplica a tu negocio?"
             valor={motivo.texto}
-            onCambio={motivo.cambiar}
+            onCambio={escribirMotivo}
             onEnviar={mandarMotivo}
             descritoPor={idPregunta}
             enfocar={enfocar}
+            invalido={faltaMotivo.falta !== null}
           />
-          <MensajeError mensaje={error} />
+          <MensajeError mensaje={faltaMotivo.falta ?? error} />
           <div className="acciones">
-            <Boton
-              type="submit"
-              disabled={!motivo.texto.trim() || ocupado}
-              enCurso={enCurso === 'no_aplica'}
-            >
+            <Boton type="submit" disabled={ocupado} enCurso={enCurso === 'no_aplica'}>
               Siguiente
             </Boton>
             <Boton

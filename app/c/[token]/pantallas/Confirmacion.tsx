@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { AreaDeTexto, useBorrador } from '../componentes/AreaDeTexto'
+import { AreaDeTexto, useBorrador, useFaltaTexto } from '../componentes/AreaDeTexto'
 import { Boton } from '../componentes/Boton'
 import { useEnvio, type PantallaDe } from '../componentes/Contexto'
 import { MensajeError } from '../componentes/Mensajes'
@@ -21,6 +21,11 @@ export function Confirmacion({ pantalla, corrigiendoAlInicio = false }: Props) {
   const abiertaPorBorrador = useRef(false)
   const id = useId()
   const idTexto = `${id}texto`
+  const idCorreccion = `${id}correccion`
+  const { falta, avisar, ocultar } = useFaltaTexto(
+    idCorreccion,
+    'Escribí qué hay que corregir para seguir.',
+  )
 
   useEffect(() => {
     // Si había empezado a escribir una corrección y se fue, al volver la encuentra abierta.
@@ -35,9 +40,15 @@ export function Confirmacion({ pantalla, corrigiendoAlInicio = false }: Props) {
   }
 
   async function enviarCorreccion() {
+    if (ocupado) return
     const limpio = texto.trim()
-    if (!limpio || ocupado) return
+    if (!limpio) return avisar()
     if (await mandar('corregir', { tipo: 'corregir', texto: limpio })) descartar()
+  }
+
+  function escribir(valor: string) {
+    ocultar()
+    cambiar(valor)
   }
 
   function abrir() {
@@ -46,6 +57,7 @@ export function Confirmacion({ pantalla, corrigiendoAlInicio = false }: Props) {
   }
 
   function cancelar() {
+    ocultar()
     setCorrigiendo(false)
     // El botón que desplegó la corrección vuelve a aparecer: el foco va ahí y no se pierde. Con
     // setTimeout y no requestAnimationFrame: React ya confirmó el cambio y no depende de que se pinte.
@@ -70,18 +82,19 @@ export function Confirmacion({ pantalla, corrigiendoAlInicio = false }: Props) {
           }}
         >
           <AreaDeTexto
-            id={`${id}correccion`}
+            id={idCorreccion}
             etiqueta="¿Qué hay que corregir?"
             ayuda="Contalo con tus palabras, como se lo explicarías a alguien que recién empieza en tu negocio."
             valor={texto}
-            onCambio={cambiar}
+            onCambio={escribir}
             onEnviar={enviarCorreccion}
             descritoPor={idTexto}
             enfocar={enfocar}
+            invalido={falta !== null}
           />
-          <MensajeError mensaje={error} />
+          <MensajeError mensaje={falta ?? error} />
           <div className="acciones">
-            <Boton type="submit" disabled={!texto.trim() || ocupado} enCurso={enCurso === 'corregir'}>
+            <Boton type="submit" disabled={ocupado} enCurso={enCurso === 'corregir'}>
               Enviar corrección
             </Boton>
             <Boton variante="texto" onClick={cancelar} disabled={ocupado}>

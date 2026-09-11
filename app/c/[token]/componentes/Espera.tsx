@@ -22,7 +22,7 @@ export function Espera({ mensaje, sinConexion = false }: Props) {
   if (sinConexion) extra = 'Se cortó la conexión. Seguimos intentando…'
   else if (demorada) {
     extra =
-      'Está tardando más de lo normal. Podés dejar esta página abierta o volver más tarde con el mismo link: no se pierde nada.'
+      'Está tardando más de lo normal. Podés cerrar y volver más tarde con el mismo link: no se pierde nada.'
   }
 
   return (
@@ -39,8 +39,10 @@ export function Espera({ mensaje, sinConexion = false }: Props) {
           {mensaje || 'Un momento, estamos guardando lo que mandaste.'}
         </h1>
       </div>
+      {/* El proceso sigue en el servidor aunque cierre: al volver encuentra la pregunta siguiente. */}
       <p className="espera-nota">
-        Esto puede tardar hasta un par de minutos. Podés dejar la página abierta.
+        Tu respuesta ya quedó guardada. Esto puede tardar un par de minutos: podés esperar acá o
+        cerrar y seguir más tarde.
       </p>
       <p className="espera-extra" aria-live="polite">
         {extra}

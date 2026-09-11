@@ -7,6 +7,9 @@ import type { Entrada, Etapa, Pantalla } from './motor/tipos'
 export interface EstadoPublico {
   /** Hay que mandarla con cada entrada: si no coincide, otra pestaña avanzó y hay que recargar. */
   version: number
+  /** Para decirle de qué negocio es el cuestionario y a qué mail le llegó el link para seguir. */
+  negocio: string
+  email: string
   etapa: Etapa
   /** true: se está procesando la última entrada. Mostrar la espera y volver a pedir el estado cada 2 segundos. */
   procesando: boolean
