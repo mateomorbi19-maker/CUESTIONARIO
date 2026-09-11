@@ -117,7 +117,7 @@ function SeguirMasTarde({ email }: { email: string | null }) {
           ) : (
             ' por mail'
           )}
-          : te lleva a la pregunta donde quedaste, en el celular o en la compu.
+          : ahí seguís donde quedaste, en el celular o en la compu.
         </p>
         <p className="dialogo-nota">
           Lo que escribiste y todavía no mandaste queda guardado solo en este dispositivo.

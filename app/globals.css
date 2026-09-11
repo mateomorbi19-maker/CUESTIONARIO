@@ -1147,6 +1147,20 @@ p.aviso {
   color: var(--tinta-suave);
 }
 
+.inicio-guardado {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  color: var(--acento-oscuro);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.inicio-guardado svg {
+  flex: none;
+  margin-top: 0.1rem;
+}
+
 .inicio-marca {
   display: grid;
   place-items: center;

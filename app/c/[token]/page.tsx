@@ -1,11 +1,17 @@
-import Cuestionario from './Cuestionario'
+import { InicioCuestionario } from './componentes/InicioCuestionario'
 
 /**
- * Solo pasa el token. El estado se pide desde el navegador: la espera, los reintentos y los
- * borradores viven en un único lugar (Cuestionario.tsx).
+ * El mini inicio de un cuestionario, a donde lleva el link personal: el avance y un botón para
+ * entrar a las preguntas (/preguntas). El estado se pide desde el navegador, como en el resto.
  */
 export default async function PaginaCuestionario({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
-  // La key reinicia todo si se pasa de un cuestionario a otro sin recargar la página.
-  return <Cuestionario key={token} token={token} />
+  return (
+    <div className="pagina pagina-inicio">
+      <main className="hoja inicio">
+        {/* La key reinicia todo si se pasa de un cuestionario a otro sin recargar la página. */}
+        <InicioCuestionario key={token} token={token} />
+      </main>
+    </div>
+  )
 }

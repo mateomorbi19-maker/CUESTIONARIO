@@ -1,10 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Suspense,
-  useEffect,
   useId,
   useRef,
   useState,
@@ -17,13 +15,10 @@ import {
   crearCuestionario,
   escucharAlmacen,
   guardarToken,
-  leerEstado,
   leerTokenGuardado,
-  olvidarToken,
 } from '@/lib/cliente-api'
-import type { EstadoPublico } from '@/lib/estado-publico'
-import { BarraDeProgreso } from './c/[token]/componentes/BarraDeProgreso'
 import { IconoCheck } from './c/[token]/componentes/Iconos'
+import { InicioCuestionario } from './c/[token]/componentes/InicioCuestionario'
 
 const PATRON_MAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
@@ -60,14 +55,27 @@ function ContenidoInicio() {
   const token = tokenGuardado && tokenGuardado !== descartado ? tokenGuardado : null
 
   if (token) {
+    // Ya hay uno empezado en este dispositivo: lo primero es seguirlo, no abrir otro.
     return (
-      <Empezado
-        key={token}
-        token={token}
-        // Sin el código del link general no se puede abrir otro: el botón no tendría a dónde ir.
-        puedeEmpezarOtro={codigo !== null}
-        onDescartar={setDescartado}
-      />
+      <main className="hoja inicio">
+        <InicioCuestionario
+          key={token}
+          token={token}
+          onDescartar={setDescartado}
+          extra={
+            // Sin el código del link general no se puede abrir otro: el botón no tendría a dónde ir.
+            codigo && (
+              <button
+                type="button"
+                className="boton boton-texto boton-chico"
+                onClick={() => setDescartado(token)}
+              >
+                Empezar un cuestionario nuevo
+              </button>
+            )
+          }
+        />
+      </main>
     )
   }
   if (codigo) return <FormularioInicio codigo={codigo} />
@@ -76,72 +84,6 @@ function ContenidoInicio() {
 
 function rutaDe(token: string) {
   return `/c/${encodeURIComponent(token)}`
-}
-
-interface PropsEmpezado {
-  token: string
-  puedeEmpezarOtro: boolean
-  onDescartar: (token: string) => void
-}
-
-/** Ya hay uno empezado en este dispositivo: lo primero es seguirlo, no abrir otro. */
-function Empezado({ token, puedeEmpezarOtro, onDescartar }: PropsEmpezado) {
-  const [estado, setEstado] = useState<EstadoPublico | null>(null)
-
-  useEffect(() => {
-    let vigente = true
-    leerEstado(token)
-      .then((leido) => {
-        if (!vigente) return
-        if (leido.etapa !== 'terminado') {
-          setEstado(leido)
-          return
-        }
-        olvidarToken(token)
-        onDescartar(token)
-      })
-      .catch((err: unknown) => {
-        // Sin conexión igual se puede tocar «Seguir»: la pantalla del cuestionario sabe reintentar.
-        if (!vigente || !(err instanceof ErrorApi) || err.estado !== 404) return
-        olvidarToken(token)
-        onDescartar(token)
-      })
-    return () => {
-      vigente = false
-    }
-  }, [token, onDescartar])
-
-  return (
-    <main className="hoja inicio">
-      <div className="inicio-cabeza">
-        <h1 className="inicio-titulo">Tenés un cuestionario empezado</h1>
-        <p>Todo lo que contestaste está guardado. Seguís desde la pregunta donde quedaste.</p>
-      </div>
-
-      {estado && (
-        <div className="empezado">
-          <p className="empezado-negocio">{estado.negocio}</p>
-          <BarraDeProgreso porcentaje={estado.progreso.porcentaje} texto={estado.progreso.texto} />
-        </div>
-      )}
-
-      <div className="acciones">
-        <Link className="boton boton-principal" href={rutaDe(token)}>
-          Seguir donde quedé
-        </Link>
-      </div>
-
-      {puedeEmpezarOtro && (
-        <button
-          type="button"
-          className="boton boton-texto boton-chico"
-          onClick={() => onDescartar(token)}
-        >
-          Empezar un cuestionario nuevo
-        </button>
-      )}
-    </main>
-  )
 }
 
 interface ErroresFormulario {
@@ -192,7 +134,8 @@ function FormularioInicio({ codigo }: { codigo: string }) {
         return
       }
       guardarToken(resultado.token)
-      // La url la arma nuestro servidor, pero router.push ejecutaría un «javascript:»: solo rutas propias.
+      // Va al mini inicio del cuestionario, no directo a la primera pregunta. La url la arma
+      // nuestro servidor, pero router.push ejecutaría un «javascript:»: solo rutas propias.
       const { url, token } = resultado
       router.push(url.startsWith('/') && !url.startsWith('//') ? url : rutaDe(token))
       // «enviando» queda prendido a propósito: un segundo toque durante la navegación crearía

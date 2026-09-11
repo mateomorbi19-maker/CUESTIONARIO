@@ -32,8 +32,10 @@ completo y `cierre.md`. Con eso sigue en Claude Code con `/etapas` y `/prompt`.
 
 1. Un único link general, con código (`CODIGO_ACCESO`), para todos los clientes.
 2. El cliente pone el nombre del negocio y su mail. Se le crea su cuestionario y se le manda
-   por mail su link personal para retomar. Desde el mismo dispositivo retoma solo. Si ese mail
-   ya tiene uno sin terminar, no se abre otro: se le manda un link para seguirlo.
+   por mail su link personal para retomar. Ese link abre un mini inicio con el avance y un solo
+   botón para entrar a las preguntas; en el mismo dispositivo, el inicio general muestra lo
+   mismo. Si ese mail ya tiene uno sin terminar, no se abre otro: se le manda un link para
+   seguirlo.
 3. Triage → confirmación de cómo termina un chat bueno → generación del cuestionario →
    material (chats y documentos) → entrevista por secciones → cierre interno → preguntas
    finales → agradecimiento.
