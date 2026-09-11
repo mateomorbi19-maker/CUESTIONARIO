@@ -78,7 +78,7 @@ async function aplicar(estado: EstadoCuestionario, entradas: Entrada[], dep: Dep
 }
 
 const respuesta = (texto: string): Entrada => ({ tipo: 'respuesta', texto })
-const seisRespuestas = Array.from({ length: 6 }, (_, i) => respuesta(`respuesta ${i + 1}`))
+const respuestasDelTriage = textos.PREGUNTAS_TRIAGE.map((_, i) => respuesta(`respuesta ${i + 1}`))
 
 const GUION = `Te mando un video corto con las diferencias entre los modelos.
 Trabajamos solo con cuero ecológico resistente al agua y al sol, para que dure años.
@@ -130,7 +130,16 @@ describe('triage', () => {
     const pantalla = pantallaActual(estadoInicial('Clínica'))
     assert.ok(pantalla.tipo === 'pregunta')
     assert.equal(pantalla.introduccion, textos.INTRODUCCION_TRIAGE)
-    assert.equal(pantalla.texto, textos.PREGUNTAS_TRIAGE[0])
+    assert.equal(pantalla.texto, textos.PREGUNTAS_TRIAGE[0].texto)
+  })
+
+  it('un índice guardado más allá de la última pregunta muestra la última', () => {
+    // Pasa si el formulario pierde una pregunta con un cuestionario a mitad del triage.
+    const estado = estadoInicial('Clínica')
+    estado.triage.indice = textos.PREGUNTAS_TRIAGE.length
+    const pantalla = pantallaActual(estado)
+    assert.ok(pantalla.tipo === 'pregunta')
+    assert.equal(pantalla.texto, textos.PREGUNTAS_TRIAGE[textos.PREGUNTAS_TRIAGE.length - 1].texto)
   })
 
   it('en la pregunta 1 repregunta con el texto de la skill y una sola vez', async () => {
@@ -147,9 +156,9 @@ describe('triage', () => {
     assert.equal(pasos(ia).filter((p) => p === 'evaluar_triage').length, 1)
   })
 
-  it('con las seis respuestas y material suficiente pasa a confirmar la clasificación', async () => {
-    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [alcanza], clasificar: [clasificacionSimple] })
-    const estado = await aplicar(estadoInicial('Clínica'), seisRespuestas, dependencias(ia))
+  it('con las respuestas del triage y material suficiente pasa a confirmar la clasificación', async () => {
+    const ia = iaFalsa({ evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir), evaluar_alcance: [alcanza], clasificar: [clasificacionSimple] })
+    const estado = await aplicar(estadoInicial('Clínica'), respuestasDelTriage, dependencias(ia))
     assert.equal(estado.etapa, 'confirmacion')
     assert.deepEqual(pantallaActual(estado), { tipo: 'confirmacion', texto: clasificacionSimple.mensaje })
   })
@@ -164,9 +173,9 @@ describe('triage', () => {
 
 describe('Fase 0.5', () => {
   it('si no alcanza pide un chat; sin chats reconstruye con tres preguntas y clasifica', async () => {
-    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [noAlcanza], clasificar: [clasificacionSimple] })
+    const ia = iaFalsa({ evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir), evaluar_alcance: [noAlcanza], clasificar: [clasificacionSimple] })
     const dep = dependencias(ia)
-    let estado = await aplicar(estadoInicial('Cerrajería'), seisRespuestas, dep)
+    let estado = await aplicar(estadoInicial('Cerrajería'), respuestasDelTriage, dep)
     assert.equal(estado.etapa, 'pedido_chat')
 
     estado = await avanzar(estado, { tipo: 'sin_chat' }, dep)
@@ -182,13 +191,13 @@ describe('Fase 0.5', () => {
 
   it('con capturas subidas y sin texto, las transcribe y las usa como chat', async () => {
     const ia = iaFalsa({
-      evaluar_triage: Array(6).fill(seguir),
+      evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir),
       evaluar_alcance: [noAlcanza],
       transcribir_archivo: [{ texto: 'Cliente: se me trabó la puerta' }],
       clasificar: [clasificacionSimple],
     })
     const dep = dependencias(ia, { captura: Buffer.from([0xff, 0xd8, 0xff]) })
-    let estado = await aplicar(estadoInicial('Cerrajería'), seisRespuestas, dep)
+    let estado = await aplicar(estadoInicial('Cerrajería'), respuestasDelTriage, dep)
     estado.material.archivos.push({ id: 'captura', nombre: 'chat.jpg', mime: 'image/jpeg', tipo: 'imagen', bytes: 3, texto: null, etapa: 'pedido_chat' })
 
     await assert.rejects(avanzar({ ...estado, material: { ...estado.material, archivos: [] } }, respuesta(''), dep), ErrorEntrada)
@@ -204,9 +213,9 @@ describe('Fase 0.5', () => {
 describe('Fase 1', () => {
   it('si hay dos procesos hace elegir y reclasifica con el elegido', async () => {
     const hibrido: SalidaClasificacion = { ...clasificacionSimple, hibrido: true, procesos: ['vender el plan', 'agendar la clase de prueba'], mensaje: '' }
-    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [alcanza], clasificar: [hibrido, clasificacionSimple] })
+    const ia = iaFalsa({ evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir), evaluar_alcance: [alcanza], clasificar: [hibrido, clasificacionSimple] })
     const dep = dependencias(ia)
-    let estado = await aplicar(estadoInicial('Gimnasio'), seisRespuestas, dep)
+    let estado = await aplicar(estadoInicial('Gimnasio'), respuestasDelTriage, dep)
     assert.deepEqual(pantallaActual(estado), { tipo: 'eleccion', texto: textos.ELECCION_HIBRIDO, opciones: hibrido.procesos })
 
     await assert.rejects(avanzar(estado, { tipo: 'eleccion', opcion: 'otra' }, dep), ErrorEntrada)
@@ -217,12 +226,12 @@ describe('Fase 1', () => {
 
   it('una corrección se guarda y reclasifica', async () => {
     const ia = iaFalsa({
-      evaluar_triage: Array(6).fill(seguir),
+      evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir),
       evaluar_alcance: [alcanza],
       clasificar: [clasificacionSimple, { ...clasificacionSimple, arquetipo: 'A' }],
     })
     const dep = dependencias(ia)
-    let estado = await aplicar(estadoInicial('Clínica'), seisRespuestas, dep)
+    let estado = await aplicar(estadoInicial('Clínica'), respuestasDelTriage, dep)
     estado = await avanzar(estado, { tipo: 'corregir', texto: 'No, el chat termina cuando pagan la seña' }, dep)
     assert.deepEqual(estado.correcciones, ['No, el chat termina cuando pagan la seña'])
     assert.equal(estado.clasificacion?.arquetipo, 'A')
@@ -230,19 +239,19 @@ describe('Fase 1', () => {
 
   it('saca el rótulo "Acción terminal del chat bueno:" si el modelo lo copia en el valor', async () => {
     const conRotulo: SalidaClasificacion = { ...clasificacionSimple, accion_terminal: 'Acción terminal del chat bueno: le paso la dirección y quedamos en un horario' }
-    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [alcanza], clasificar: [conRotulo] })
-    const estado = await aplicar(estadoInicial('Cerrajería'), seisRespuestas, dependencias(ia))
+    const ia = iaFalsa({ evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir), evaluar_alcance: [alcanza], clasificar: [conRotulo] })
+    const estado = await aplicar(estadoInicial('Cerrajería'), respuestasDelTriage, dependencias(ia))
     assert.equal(estado.clasificacion?.accionTerminal, 'le paso la dirección y quedamos en un horario')
   })
 })
 
 describe('generación del examen', () => {
-  const hastaConfirmar = (ia: ClienteIa) => aplicar(estadoInicial('Clínica'), seisRespuestas, dependencias(ia))
+  const hastaConfirmar = (ia: ClienteIa) => aplicar(estadoInicial('Clínica'), respuestasDelTriage, dependencias(ia))
 
   it('si la validación falla, reintenta con los errores y se queda con la versión válida', async () => {
     const invalido = examenValido()
     invalido.secciones[0].preguntas[0] = 'Contá cómo es tu día.'
-    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [alcanza], clasificar: [clasificacionSimple], generar_examen: [invalido, examenValido()] })
+    const ia = iaFalsa({ evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir), evaluar_alcance: [alcanza], clasificar: [clasificacionSimple], generar_examen: [invalido, examenValido()] })
     const estado = await avanzar(await hastaConfirmar(ia), { tipo: 'confirmar' }, dependencias(ia))
 
     assert.equal(estado.etapa, 'material')
@@ -256,7 +265,7 @@ describe('generación del examen', () => {
     const invalido = examenValido()
     invalido.secciones[7].preguntas = ['¿A quién derivás? Nombralo.']
     const ia = iaFalsa({
-      evaluar_triage: Array(6).fill(seguir),
+      evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir),
       evaluar_alcance: [alcanza],
       clasificar: [clasificacionSimple],
       generar_examen: Array.from({ length: INTENTOS_EXAMEN }, () => invalido),
@@ -267,7 +276,7 @@ describe('generación del examen', () => {
   })
 
   it('la nota del cuestionario general queda con el texto exacto de la skill', async () => {
-    const ia = iaFalsa({ evaluar_triage: Array(6).fill(seguir), evaluar_alcance: [alcanza], clasificar: [clasificacionSimple], generar_examen: [{ ...examenValido(), nota: 'Es general.' }] })
+    const ia = iaFalsa({ evaluar_triage: Array(textos.PREGUNTAS_TRIAGE.length).fill(seguir), evaluar_alcance: [alcanza], clasificar: [clasificacionSimple], generar_examen: [{ ...examenValido(), nota: 'Es general.' }] })
     const estado = await avanzar(await hastaConfirmar(ia), { tipo: 'confirmar' }, dependencias(ia))
     assert.equal(estado.examen?.nota, textos.NOTA_GENERICO)
   })

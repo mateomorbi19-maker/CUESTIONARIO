@@ -7,8 +7,10 @@ Acordado el 2026-09-10. Si algo de esto cambia, se actualiza este archivo en el 
 Un formulario web que completa el dueño de un negocio antes de que se le construya su agente
 de IA. Por detrás, Claude corre las dos skills de la clase 1 del starter kit:
 
-1. **`mi-negocio`**: seis preguntas de triage. Clasifica el negocio (arquetipo A a E) y genera
-   un cuestionario a medida de 9 secciones y entre 30 y 45 preguntas.
+1. **`mi-negocio`**: el triage. Clasifica el negocio (arquetipo A a E) y genera un cuestionario
+   a medida de 9 secciones y entre 30 y 45 preguntas. En la web el triage son cinco preguntas:
+   las de la skill en palabras simples, sin la de quién hace la última parte del chat bueno
+   (la hacen siempre el dueño o su equipo, y no se entendía).
 2. **`entrevista`**: conduce ese cuestionario, repregunta lo vago y escribe `brief-comercial.md`.
 
 Al terminar, a Mateo le llega un mail con `examen.md`, `brief-comercial.md`, `CLAUDE.md`
@@ -68,8 +70,9 @@ un guion donde las frases exactas importan. Para que el cuestionario sirva ahí:
    pedazos separados por `[…]` y código verifica cada uno letra por letra. El cierre compara el
    material con el brief: lo que el material tenía y no quedó vuelve como pregunta final. El mail
    trae la sección "Lo que contestó distinto de su material".
-4. **Chats recientes.** El material pide chats de las últimas semanas. Capturas y texto
-   pegado tienen que funcionar tan bien como un chat exportado.
+4. **Chats recientes.** El material pide chats de las últimas semanas. Todo entra como archivo
+   (capturas, el chat exportado, PDF, Word, Excel) y las capturas tienen que funcionar tan bien
+   como un chat exportado. No hay campo para pegar texto suelto: confundía.
 5. **Plan contra práctica.** Lo que suena a plan y no aparece en los chats se marca en el
    reporte.
 

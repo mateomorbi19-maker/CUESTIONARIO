@@ -1,5 +1,4 @@
-import { useId, useState } from 'react'
-import { AreaDeTexto, useBorrador, useFaltaTexto } from '../componentes/AreaDeTexto'
+import { useState } from 'react'
 import { Boton } from '../componentes/Boton'
 import { useCuestionario, useEnvio, type PantallaDe } from '../componentes/Contexto'
 import { EsperaEnLinea } from '../componentes/Espera'
@@ -11,34 +10,21 @@ import { TextoConNegritas } from '../componentes/TextoConNegritas'
 /**
  * Antes de la entrevista: juntar chats y documentos. Lo que ya está escrito ahí después se le
  * muestra para confirmar en lugar de preguntárselo de cero.
+ *
+ * Solo se suben archivos. Un campo para pegar texto suelto confundía («¿texto de qué?») y todo
+ * lo que sirve entra como archivo: capturas, el chat exportado, PDF, Word o Excel. La lista
+ * igual muestra los textos pegados de cuestionarios empezados antes, para poder quitarlos.
  */
 export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
   const { esperaEnLinea } = useCuestionario()
   const { mandar, enCurso, ocupado, error, errorDe } = useEnvio()
-  const { texto, cambiar, descartar } = useBorrador('material')
   const [subiendo, setSubiendo] = useState(false)
-  const id = useId()
-  const idTexto = `${id}texto`
-  const { falta, avisar, ocultar } = useFaltaTexto(idTexto, 'Pegá un texto antes de tocar «Agregar».')
   const bloqueado = ocupado || subiendo
   const cantidad = pantalla.archivos.length + pantalla.textos.length
 
-  // Cada error al lado de lo que lo causó: la pantalla es larga y abajo de todo no se vería.
-  const errorAgregar = errorDe('agregar')
+  // El error de quitar va junto a la lista: la pantalla es larga y abajo de todo no se vería.
   const errorLista = errorDe('quitar')
-  const errorFinal = errorAgregar || errorLista ? null : error
-
-  async function agregarTexto() {
-    if (bloqueado) return
-    const limpio = texto.trim()
-    if (!limpio) return avisar()
-    if (await mandar('agregar', { tipo: 'texto_material', texto: limpio })) descartar()
-  }
-
-  function escribir(valor: string) {
-    ocultar()
-    cambiar(valor)
-  }
+  const errorFinal = errorLista ? null : error
 
   return (
     <section className="pantalla">
@@ -62,7 +48,7 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
         <h2 className="subtitulo">Subir archivos</h2>
         <SubidaDeArchivos
           textoBoton="Elegir archivos"
-          ayuda="Capturas, fotos, PDF, Word, Excel, textos o el .zip que exporta WhatsApp. Hasta 20 MB cada uno."
+          ayuda="Capturas de los chats, el chat que exporta WhatsApp, fotos, PDF, Word o Excel. Hasta 20 MB cada uno."
           arrastrable
           onSubiendo={setSubiendo}
         />
@@ -70,7 +56,7 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
 
       {(cantidad > 0 || esperaEnLinea) && (
         <div className="bloque">
-          <h2 className="subtitulo">Lo que ya sumaste</h2>
+          <h2 className="subtitulo">Lo que ya subiste</h2>
           {esperaEnLinea && <EsperaEnLinea mensaje={esperaEnLinea} />}
           <ListaDeMaterial
             archivos={pantalla.archivos}
@@ -81,37 +67,6 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
           <MensajeError mensaje={errorLista} />
         </div>
       )}
-
-      <form
-        className="bloque"
-        onSubmit={(evento) => {
-          evento.preventDefault()
-          void agregarTexto()
-        }}
-      >
-        <AreaDeTexto
-          id={idTexto}
-          etiqueta="Pegar un texto"
-          etiquetaComoTitulo
-          ayuda="Un chat copiado, tu lista de precios, los mensajes que mandás siempre igual."
-          valor={texto}
-          onCambio={escribir}
-          onEnviar={agregarTexto}
-          invalido={falta !== null}
-        />
-        <MensajeError mensaje={falta ?? errorAgregar} />
-        <div className="acciones">
-          <Boton
-            type="submit"
-            variante="secundario"
-            disabled={bloqueado}
-            enCurso={enCurso === 'agregar'}
-            textoEnCurso="Agregando…"
-          >
-            Agregar
-          </Boton>
-        </div>
-      </form>
 
       <MensajeError mensaje={errorFinal} />
       <div className="acciones acciones-final">

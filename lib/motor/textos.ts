@@ -6,19 +6,53 @@
  * falla y se actualiza acá.
  */
 
-// ---- De skills/mi-negocio/SKILL.md ----
+// ---- De skills/mi-negocio/SKILL.md, reescritos para el formulario ----
+
+export interface PreguntaTriage {
+  /** El número de la pregunta de la Fase 0 de la skill que reemplaza. */
+  enLaSkill: number
+  texto: string
+}
+
+/**
+ * Las preguntas de la Fase 0 en palabras simples. En la skill las hace alguien que puede
+ * aclarar; acá el dueño las lee solo, y las originales se entendían mal. Cada una dice qué
+ * pregunta de la skill reemplaza: la IA la evalúa con lo que busca esa, y la prueba de contrato
+ * verifica que exista.
+ *
+ * La 2 de la skill («¿la hacés vos, alguien de tu equipo, o no la hace nadie?») no se hace: en
+ * los negocios que llegan acá la última parte del chat bueno la hacen siempre el dueño o su
+ * equipo, a mano, y la pregunta no se entendía.
+ */
+export const PREGUNTAS_TRIAGE: readonly PreguntaTriage[] = [
+  {
+    enLaSkill: 1,
+    texto:
+      'Pensá en el último chat con un cliente que terminó bien. ¿En qué terminó? Por ejemplo: te pagó, reservó un turno, te hizo un pedido o te dejó sus datos para llamarlo después.',
+  },
+  {
+    enLaSkill: 3,
+    texto: 'La mayoría de los que te escriben, ¿son personas nuevas o clientes que vuelven?',
+  },
+  {
+    enLaSkill: 4,
+    texto:
+      'Antes de contestar un mensaje, ¿tenés que revisar algo? Por ejemplo: la agenda, el stock, una lista de precios o si tenés lugar.',
+  },
+  {
+    enLaSkill: 5,
+    texto: 'Más o menos, ¿cuántas personas te escriben por semana? ¿Qué es lo que te pregunta casi todo el mundo?',
+  },
+  {
+    enLaSkill: 6,
+    texto: 'De atender los chats, ¿qué es lo que más tiempo te lleva o lo que más te complica hoy?',
+  },
+]
 
 export const INTRODUCCION_TRIAGE =
-  'Antes de armarte el cuestionario necesito entender cómo funciona tu negocio. Seis preguntas, dos minutos.'
+  'Antes de armarte el cuestionario necesito entender cómo funciona tu negocio. Son cinco preguntas cortas.'
 
-export const PREGUNTAS_TRIAGE = [
-  'Pensá en el último chat que salió bien, uno que terminó como vos querías. ¿En qué terminó exactamente? Por ejemplo: la persona pagó, quedó agendada, la mandaste a la web, te dejó los datos y la llamaste después, te hizo un pedido.',
-  'Esa última parte —la que hace que la conversación cuente como buena— ¿la hacés vos, alguien de tu equipo, o no la hace nadie y queda ahí?',
-  'El que te escribe, ¿es alguien que aparece una vez y listo, o es alguien que vuelve seguido?',
-  'Cuando te escriben, ¿hay algo que tengas que ir a fijarte antes de poder contestar? Agenda, stock, disponibilidad, precios que cambian, algo así.',
-  '¿Cuántas personas te escriben por semana, más o menos? ¿Y cuántas de esas preguntan más o menos lo mismo?',
-  'De atender esos chats, ¿qué es lo que más te rompe hoy?',
-] as const
+// ---- De skills/mi-negocio/SKILL.md ----
 
 export const REPREGUNTA_ACCION_TERMINAL =
   '¿Y qué fue lo último que hiciste vos en ese chat? ¿Le mandaste un link, lo anotaste en algún lado, le pasaste un dato?'
@@ -48,10 +82,10 @@ export const FRASE_RESPONDE_COMO_AGENTE = 'Pará. No me digas qué debería deci
 export const SIN_CHAT = 'No guardo los chats'
 
 export const AVISO_SIN_MATERIAL =
-  'Todavía no subiste ni pegaste nada. Con conversaciones reales la entrevista sale mucho mejor, porque cada una muestra algo distinto de cómo vendés. Si no las tenés, podés seguir igual.'
+  'Todavía no subiste nada. Con conversaciones reales la entrevista sale mucho mejor, porque cada una muestra algo distinto de cómo vendés. Si no las tenés, podés seguir igual.'
 
 export function avisoFaltantes(faltan: string[]): string {
-  return `Te falta: ${faltan.join('; ')}. Cada conversación muestra algo distinto de cómo vendés, así que si las tenés, subilas o pegalas. Si no, podés seguir igual.`
+  return `Te falta: ${faltan.join('; ')}. Cada conversación muestra algo distinto de cómo vendés, así que si las tenés, subilas. Si no, podés seguir igual.`
 }
 
 export const GRACIAS =

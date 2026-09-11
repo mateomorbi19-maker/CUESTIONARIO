@@ -1,4 +1,5 @@
 import type { EstadoPublico } from '@/lib/estado-publico'
+import * as textos from '@/lib/motor/textos'
 import type { Etapa, Pantalla, Propuesta } from '@/lib/motor/tipos'
 import type { ModoInicial } from '../c/[token]/componentes/VistaCuestionario'
 
@@ -79,17 +80,15 @@ export const VARIANTES: Variante[] = [
   {
     id: 'pregunta',
     titulo: 'Pregunta con introducción',
-    nota: 'Escribí algo y recargá: el borrador vuelve. Ctrl + Enter envía.',
+    nota: 'Escribí algo y recargá: el borrador vuelve. Tocá «Siguiente» sin escribir para ver el aviso.',
     tipo: 'pantalla',
     estado: estado(
       'triage',
       {
         tipo: 'pregunta',
         clave: 'triage.1',
-        introduccion:
-          'Antes de armarte el cuestionario necesito entender cómo funciona tu negocio. Seis preguntas, dos minutos.',
-        texto:
-          'Pensá en el último chat que salió bien, uno que terminó como vos querías. ¿En qué terminó exactamente? Por ejemplo: la persona pagó, quedó agendada, la mandaste a la web, te dejó los datos y la llamaste después, te hizo un pedido.',
+        introduccion: textos.INTRODUCCION_TRIAGE,
+        texto: textos.PREGUNTAS_TRIAGE[0].texto,
         esRepregunta: false,
       },
       4,
@@ -200,7 +199,7 @@ export const VARIANTES: Variante[] = [
   {
     id: 'material',
     titulo: 'Material, vacío',
-    nota: 'Probá subir (también arrastrando), un video o algo de más de 20 MB, y pegar un texto.',
+    nota: 'Probá subir (también arrastrando), un video o algo de más de 20 MB, y quitar un archivo.',
     tipo: 'pantalla',
     estado: estado(
       'material',

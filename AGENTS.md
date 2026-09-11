@@ -49,7 +49,7 @@ npm run prueba && npm run tipos && npm run build
 |---|---|
 | `lib/motor/motor.ts` | `avanzar(estado, entrada, dependencias)`: calcula el estado siguiente. `pantallaActual`, `progreso`, `mensajeEspera`, `validarEntrada` |
 | `lib/motor/tipos.ts` | Etapas, estado guardado, pantallas y entradas: el contrato con las pantallas |
-| `lib/motor/textos.ts` | Textos fijos. Los que vienen de una skill los compara `pruebas/contrato.test.ts` letra por letra |
+| `lib/motor/textos.ts` | Textos fijos. Los que vienen de una skill los compara `pruebas/contrato.test.ts` letra por letra. Las preguntas del triage están reescritas para la web y cada una dice qué pregunta de la skill reemplaza |
 | `lib/motor/instrucciones.ts` | `CAPA_WEB` y el pedido a Claude de cada paso, con su esquema JSON |
 | `lib/motor/literal.ts` | Controla que los textos que el dueño le escribe a un cliente lleguen al brief tal cual |
 | `lib/motor/reporte.ts` | Arma `cierre.md`, lo que el cliente no ve |

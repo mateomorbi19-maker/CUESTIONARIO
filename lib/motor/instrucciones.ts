@@ -13,7 +13,7 @@ import {
 } from '../examen'
 import type { NombreSkill } from '../skills'
 import { SEPARADOR_FRAGMENTOS } from './literal'
-import { FRASE_RESPONDE_COMO_AGENTE, NOTA_GENERICO } from './textos'
+import { FRASE_RESPONDE_COMO_AGENTE, NOTA_GENERICO, PREGUNTAS_TRIAGE } from './textos'
 import type { ArchivoMaterial, Clasificacion, EstadoCuestionario, Intercambio, RespuestaEntrevista } from './tipos'
 
 /**
@@ -48,7 +48,9 @@ Lo que sigue adapta la skill de arriba a un formulario web. Donde choca con la s
 No estás en Claude Code. Estás detrás de un formulario web que completa el dueño de un negocio. No hay carpeta, ni archivos, ni comandos: la app guarda todo y arma las pantallas.
 
 - Donde la skill dice "creá el archivo", "escribí en brief-comercial.md", "buscá el archivo", "escribí /comando", "mostrale las primeras secciones" o "cerrá con este mensaje", eso lo resuelve la app. Vos devolvés el texto en el JSON del paso y no mencionás archivos ni comandos.
-- Las seis preguntas, el pedido de chat, las preguntas para reconstruirlo y cada pregunta del cuestionario las muestra la app, una por vez y en orden. Vos evaluás lo que contesta.
+- Las preguntas del triage, el pedido de chat, las preguntas para reconstruirlo y cada pregunta del cuestionario las muestra la app, una por vez y en orden. Vos evaluás lo que contesta.
+- El triage del formulario tiene ${PREGUNTAS_TRIAGE.length} preguntas: las de la Fase 0 escritas en palabras más simples, porque el dueño las lee solo y no hay nadie que le aclare. La pregunta 2 de la skill (quién hace la última parte del chat bueno) no se hace: la hacen el dueño o su equipo, a mano. No la repreguntes, no la pidas en otro paso y no la anotes como pendiente.
+- Todo lo que le escribas al dueño (repreguntas, preguntas, el mensaje de la Fase 1) va en palabras simples y cortas, como se lo diría una persona. Nada de frases armadas como «eso me sirve, pero» o «la que hace que la conversación cuente como buena».
 
 ## Quién contesta
 
@@ -248,15 +250,17 @@ function respuestasDeSeccion(estado: EstadoCuestionario, seccion: Seccion): stri
 
 // ---------------------------------------------------------------- mi-negocio
 
-export function evaluarTriage(estado: EstadoCuestionario, numero: number): Paso {
+/** `indice` es el de la pregunta del formulario: se evalúa con lo que busca su pregunta en la skill. */
+export function evaluarTriage(estado: EstadoCuestionario, indice: number): Paso {
+  const pregunta = PREGUNTAS_TRIAGE[Math.min(indice, PREGUNTAS_TRIAGE.length - 1)]
   const reglaPrimera =
-    numero === 1
-      ? '\n\nEs la pregunta 1: si no dice con un hecho concreto en qué terminó el chat ("terminó bien", "me compró"), decidí "repreguntar". La app muestra la repregunta exacta de la skill.'
+    pregunta.enLaSkill === 1
+      ? '\n\nEs la de la acción terminal: si no dice con un hecho concreto en qué terminó el chat ("terminó bien", "me compró"), decidí "repreguntar". La app muestra la repregunta exacta de la skill.'
       : ''
   return {
     skill: 'mi-negocio',
     paso: 'evaluar_triage',
-    mensaje: `PASO: evaluar la respuesta a la pregunta ${numero} de 6 del triage (Fase 0).
+    mensaje: `PASO: evaluar la respuesta a la pregunta ${indice + 1} de ${PREGUNTAS_TRIAGE.length} del formulario. Es la pregunta ${pregunta.enLaSkill} de la Fase 0 de la skill, escrita en palabras más simples: evaluala con lo que busca esa.
 
 ${bloque('triage', conversacion(estado.triage.intercambios))}
 
@@ -264,9 +268,9 @@ Evaluá la última respuesta. Decidí:
 - "seguir" si se entiende y alcanza para avanzar, aunque sea corta. "No sé" o "no llevo la cuenta" también es "seguir": se anota y se sigue.
 - "repreguntar" solo si no se entiende o es tan vaga que no dice nada.${reglaPrimera}
 
-En "repregunta" va el texto exacto a mostrarle: una sola pregunta, con voseo, sin felicitar y sin explicar por qué repreguntás. Si la decisión es "seguir", va vacío.`,
+En "repregunta" va el texto exacto a mostrarle: una sola pregunta corta, en palabras simples, con voseo, sin felicitar, sin explicar por qué repreguntás y sin «eso me sirve, pero». Si la decisión es "seguir", va vacío.`,
     esquema: objeto({ decision: { type: 'string', enum: ['seguir', 'repreguntar'] }, repregunta: TEXTO }),
-    // Corre seis veces en un par de minutos: la caché corta alcanza y se amortiza.
+    // Corre una vez por pregunta en un par de minutos: la caché corta alcanza y se amortiza.
     cache: '5m',
     esfuerzo: 'low',
     maxTokens: 4000,
@@ -277,7 +281,7 @@ export function evaluarAlcance(estado: EstadoCuestionario): Paso {
   return {
     skill: 'mi-negocio',
     paso: 'evaluar_alcance',
-    mensaje: `PASO: Fase 0.5. Con las seis respuestas, contestate la pregunta de la skill: ¿hay una acción terminal concreta en la pregunta 1 y al menos tres datos concretos en el resto (números, nombres de sistemas, acciones específicas)?
+    mensaje: `PASO: Fase 0.5. Con las respuestas del triage, contestate la pregunta de la skill: ¿hay una acción terminal concreta en la pregunta 1 y al menos tres datos concretos en el resto (números, nombres de sistemas, acciones específicas)?
 
 ${bloque('triage', conversacion(estado.triage.intercambios))}
 

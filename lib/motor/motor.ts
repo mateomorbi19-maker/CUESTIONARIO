@@ -94,7 +94,7 @@ export function pantallaActual(estado: EstadoCuestionario): Pantalla {
         tipo: 'pregunta',
         clave: `triage.${indice + 1}`,
         introduccion: indice === 0 && repregunta === null ? textos.INTRODUCCION_TRIAGE : null,
-        texto: repregunta ?? textos.PREGUNTAS_TRIAGE[indice],
+        texto: repregunta ?? preguntaTriage(indice).texto,
         esRepregunta: repregunta !== null,
       }
     }
@@ -154,7 +154,7 @@ export function pantallaActual(estado: EstadoCuestionario): Pantalla {
 export function progreso(estado: EstadoCuestionario): { porcentaje: number; texto: string } {
   switch (estado.etapa) {
     case 'triage':
-      return { porcentaje: Math.round((estado.triage.indice / 6) * 10), texto: 'Primeras preguntas' }
+      return { porcentaje: Math.round((estado.triage.indice / textos.PREGUNTAS_TRIAGE.length) * 10), texto: 'Primeras preguntas' }
     case 'pedido_chat':
     case 'reconstruccion':
     case 'eleccion':
@@ -186,7 +186,7 @@ export function progreso(estado: EstadoCuestionario): { porcentaje: number; text
 export function mensajeEspera(estado: EstadoCuestionario, entrada: Entrada): string {
   switch (estado.etapa) {
     case 'triage':
-      return estado.triage.indice === 5 ? 'Leyendo tus respuestas.' : 'Un momento.'
+      return estado.triage.indice >= textos.PREGUNTAS_TRIAGE.length - 1 ? 'Leyendo tus respuestas.' : 'Un momento.'
     case 'pedido_chat':
       return 'Leyendo la conversación.'
     case 'confirmacion':
@@ -361,17 +361,25 @@ async function pedir<T>(dep: Dependencias, paso: instrucciones.Paso): Promise<T>
 
 // ---------------------------------------------------------------- mi-negocio
 
+/**
+ * La pregunta del triage que toca. Acotada: si el formulario pierde una pregunta con un
+ * cuestionario a mitad del triage, el índice guardado puede pasarse de la última.
+ */
+function preguntaTriage(indice: number): textos.PreguntaTriage {
+  return textos.PREGUNTAS_TRIAGE[Math.min(indice, textos.PREGUNTAS_TRIAGE.length - 1)]
+}
+
 async function responderTriage(estado: EstadoCuestionario, respuesta: string, dep: Dependencias): Promise<EstadoCuestionario> {
   const { indice, repregunta } = estado.triage
-  const numero = indice + 1
-  estado.triage.intercambios.push({ pregunta: repregunta ?? textos.PREGUNTAS_TRIAGE[indice], respuesta })
+  const pregunta = preguntaTriage(indice)
+  estado.triage.intercambios.push({ pregunta: repregunta ?? pregunta.texto, respuesta })
 
   // Una repregunta ya hecha no se evalúa: la skill permite una sola, y después se sigue con lo que haya.
   if (repregunta === null) {
-    const evaluacion = await pedir<instrucciones.SalidaEvaluacion>(dep, instrucciones.evaluarTriage(estado, numero))
+    const evaluacion = await pedir<instrucciones.SalidaEvaluacion>(dep, instrucciones.evaluarTriage(estado, indice))
     if (evaluacion.decision === 'repreguntar') {
-      // En la pregunta 1 la skill dicta el texto exacto de la repregunta.
-      const texto = numero === 1 ? textos.REPREGUNTA_ACCION_TERMINAL : evaluacion.repregunta.trim()
+      // En la de la acción terminal la skill dicta el texto exacto de la repregunta.
+      const texto = pregunta.enLaSkill === 1 ? textos.REPREGUNTA_ACCION_TERMINAL : evaluacion.repregunta.trim()
       if (texto) {
         estado.triage.repregunta = texto
         return estado

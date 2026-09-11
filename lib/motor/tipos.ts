@@ -5,7 +5,7 @@ import type { Examen, LetraArquetipo } from '../examen'
  * `mi-negocio`; desde `material`, la skill `entrevista`.
  */
 export type Etapa =
-  /** Fase 0: las seis preguntas. */
+  /** Fase 0: las preguntas del triage. */
   | 'triage'
   /** Fase 0.5: las respuestas no alcanzan y se pide un chat real. */
   | 'pedido_chat'
@@ -111,7 +111,7 @@ export interface EstadoCuestionario {
   etapa: Etapa
   negocio: string
   triage: {
-    /** Cuál de las seis preguntas se está contestando: de 0 a 5. */
+    /** Cuál de las preguntas del triage se está contestando, desde 0. */
     indice: number
     intercambios: Intercambio[]
     /** La repregunta en curso. La skill permite una sola por pregunta. */
