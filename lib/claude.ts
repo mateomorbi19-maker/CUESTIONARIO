@@ -73,7 +73,9 @@ const CON_REINTENTO_EN_OTRO_MODELO = new Set(['claude-opus-5', 'claude-fable-5-1
 
 export function clienteClaude(
   registrar: (registro: RegistroLlamada) => Promise<void> | void = () => {},
-  modelo = process.env.MODELO_IA || 'claude-opus-5',
+  // Sonnet 5 por defecto: el cuestionario completo de F7 costaba US$ 3,66 con Opus 5 y sale
+  // alrededor de US$ 1,50 con los mismos tokens. Con MODELO_IA se puede volver a Opus.
+  modelo = process.env.MODELO_IA || 'claude-sonnet-5',
 ): ClienteIa {
   let sdk: Anthropic | null = null
 

@@ -33,7 +33,7 @@
 | `MAIL_AVISO` | Dónde querés recibir los entregables |
 
 Opcionales: `TOPE_CUESTIONARIOS_POR_DIA` (20 por defecto), `TOPE_LLAMADAS_POR_CUESTIONARIO`
-(600 por defecto) y `MODELO_IA` (`claude-opus-5` por defecto). `DIR_DATOS`, `PORT` y `NODE_ENV`
+(600 por defecto) y `MODELO_IA` (`claude-sonnet-5` por defecto). `DIR_DATOS`, `PORT` y `NODE_ENV`
 ya vienen fijadas en el Dockerfile.
 
 Si la contraseña de Postgres tiene `#`, `?`, `/` o `@`, la URL se corta ahí y la base responde
