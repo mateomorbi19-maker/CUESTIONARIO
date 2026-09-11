@@ -12,21 +12,27 @@ export type Esfuerzo = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type VidaCache = '5m' | '1h'
 
+/** Un bloque del mensaje: texto, imagen o PDF. */
+export type BloqueMensaje = Anthropic.Beta.Messages.BetaContentBlockParam
+
 export interface PedidoJson {
   /** Nombre del paso del motor. Va al registro de llamadas. */
   paso: string
   /** Bloques fijos del sistema, de lo más estable a lo menos. */
   sistema: string[]
-  /** Lo que cambia en cada llamada: transcripción, respuesta nueva, material. */
-  mensaje: string
+  /**
+   * Lo que cambia en cada llamada. Como bloques cuando hay que mandar imágenes o PDF, o
+   * cuando un bloque estable (el material del cuestionario) lleva su propia marca de caché.
+   */
+  mensaje: string | BloqueMensaje[]
   esquema: Record<string, unknown>
   /**
-   * Vida de la caché del prefijo, o null para no cachear.
+   * Vida de la caché del sistema, o null para no cachear.
    *
    * El esquema forma parte del prefijo: cada paso tiene su propia caché. Escribirla cuesta más
    * que mandar el prefijo sin caché (1,25 veces con 5 minutos, 2 con una hora), así que solo
-   * conviene en pasos que se repiten seguido. En la primera simulación, con caché de una hora
-   * en todos los pasos, la escritura fue más de la mitad del costo.
+   * conviene en pasos que se repiten. En la primera simulación, con caché de una hora en todos
+   * los pasos, la escritura fue más de la mitad del costo.
    */
   cache: VidaCache | null
   esfuerzo: Esfuerzo
@@ -41,7 +47,7 @@ export interface RegistroLlamada {
   tokensSalida: number
   tokensCacheEscritos: number
   tokensCacheLeidos: number
-  /** Con qué vida se escribió la caché: cambia el precio de la escritura. */
+  /** Con qué vida se escribió la caché del sistema: cambia el precio de la escritura. */
   cache: VidaCache | null
   duracionMs: number
   error: string | null
@@ -55,7 +61,7 @@ export interface ClienteIa {
 export class ErrorIa extends Error {
   constructor(
     message: string,
-    readonly causa: 'sin_clave' | 'rechazo' | 'cortada' | 'formato' | 'api',
+    readonly causa: 'sin_clave' | 'rechazo' | 'cortada' | 'formato' | 'api' | 'tope',
   ) {
     super(message)
     this.name = 'ErrorIa'
@@ -111,7 +117,9 @@ export function clienteClaude(
 
       let respuesta: Anthropic.Beta.BetaMessage
       try {
-        respuesta = await sdk.beta.messages.create(parametros)
+        // Siempre por streaming: sin él, el SDK rechaza los pedidos con techo de tokens alto
+        // (el cierre y el brief final) porque podrían pasar los 10 minutos de una petición.
+        respuesta = await sdk.beta.messages.stream(parametros).finalMessage()
       } catch (err) {
         const detalle = err instanceof Error ? err.message : String(err)
         await registrar({ ...vacio, stopReason: null, duracionMs: Date.now() - inicio, error: detalle })

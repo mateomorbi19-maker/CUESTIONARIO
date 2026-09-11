@@ -62,8 +62,11 @@ un guion donde las frases exactas importan. Para que el cuestionario sirva ahí:
 2. **Texto literal intocable.** Lo que el cliente pega como texto va al brief igual. Código
    verifica que cada frase textual del brief aparezca letra por letra en las respuestas.
 3. **Confirmar sobre lo escrito.** Si sube su guion o sus preguntas frecuentes, la pregunta
-   que ya tiene respuesta ahí se muestra como "En tu documento dice… ¿Sigue así?". El mail
-   trae la sección "Qué cambió respecto de lo que tenían escrito".
+   que ya tiene respuesta ahí se muestra como "En tu documento dice… ¿Sigue así?". Si la
+   respuesta está repartida (el precio de cada producto en su bloque), la propuesta junta los
+   pedazos separados por `[…]` y código verifica cada uno letra por letra. El cierre compara el
+   material con el brief: lo que el material tenía y no quedó vuelve como pregunta final. El mail
+   trae la sección "Lo que contestó distinto de su material".
 4. **Chats recientes.** El material pide chats de las últimas semanas. Capturas y texto
    pegado tienen que funcionar tan bien como un chat exportado.
 5. **Plan contra práctica.** Lo que suena a plan y no aparece en los chats se marca en el

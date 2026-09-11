@@ -254,6 +254,22 @@ CREATE TABLE IF NOT EXISTS llamadas_ia (
   error                 TEXT
 );
 CREATE INDEX IF NOT EXISTS llamadas_ia_cuestionario_idx ON llamadas_ia (cuestionario_id, id);
+
+-- Procesamiento en segundo plano: algunas llamadas a Claude tardan más de un minuto y un proxy
+-- corta antes. "procesando_desde" hace de candado; si queda viejo (el servidor se reinició a
+-- mitad de camino) se puede volver a tomar. "entrada_pendiente" permite reintentar lo mismo.
+ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS procesando_desde  TIMESTAMPTZ;
+ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS ultimo_error      TEXT;
+ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS entrada_pendiente JSONB;
+CREATE INDEX IF NOT EXISTS cuestionarios_creado_idx ON cuestionarios (creado_en);
+
+-- Aviso por mail al terminar. Si falla, se reintenta solo desde instrumentation.ts.
+ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS aviso_enviado_en TIMESTAMPTZ;
+ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS aviso_intentos   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE cuestionarios ADD COLUMN IF NOT EXISTS aviso_error      TEXT;
+
+-- Con qué vida se escribió la caché: una hora cuesta el doble que cinco minutos.
+ALTER TABLE llamadas_ia ADD COLUMN IF NOT EXISTS cache TEXT;
 `
 
 /**

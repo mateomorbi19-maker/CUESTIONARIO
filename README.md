@@ -32,6 +32,13 @@ Claude real:
 
 ```bash
 npm run simular -- clinica
+npm run simular -- clinica --completo
 ```
 
-Deja el cuestionario generado, la transcripción y el costo aproximado en `pruebas/salidas/`.
+El primero llega hasta el cuestionario generado; el segundo, hasta los entregables. Deja todo lo
+generado, la transcripción y el costo aproximado en `pruebas/salidas/`.
+
+## Uso
+
+El link para los clientes es `https://tu-dominio/?c=<CODIGO_ACCESO>`. Cómo deployar y qué
+variables cargar: [`docs/EASYPANEL.md`](docs/EASYPANEL.md).

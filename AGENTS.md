@@ -47,19 +47,28 @@ npm run prueba && npm run tipos && npm run build
 
 | Archivo | Qué hace |
 |---|---|
-| `lib/motor/motor.ts` | `avanzar(estado, entrada, dependencias)`: calcula el estado siguiente. `pantallaActual(estado)`: qué mostrar |
-| `lib/motor/tipos.ts` | Etapas, estado guardado, pantallas y entradas |
-| `lib/motor/textos.ts` | Textos que la skill manda decir tal cual. `pruebas/contrato.test.ts` los compara letra por letra con la skill |
+| `lib/motor/motor.ts` | `avanzar(estado, entrada, dependencias)`: calcula el estado siguiente. `pantallaActual`, `progreso`, `mensajeEspera`, `validarEntrada` |
+| `lib/motor/tipos.ts` | Etapas, estado guardado, pantallas y entradas: el contrato con las pantallas |
+| `lib/motor/textos.ts` | Textos fijos. Los que vienen de una skill los compara `pruebas/contrato.test.ts` letra por letra |
 | `lib/motor/instrucciones.ts` | `CAPA_WEB` y el pedido a Claude de cada paso, con su esquema JSON |
+| `lib/motor/literal.ts` | Controla que los textos que el dueño le escribe a un cliente lleguen al brief tal cual |
+| `lib/motor/reporte.ts` | Arma `cierre.md`, lo que el cliente no ve |
 | `lib/examen.ts` | Arma, lee, pasa a markdown y valida el cuestionario con las reglas fijas de la skill |
 | `lib/claude.ts` | Única salida hacia Claude |
-| `lib/cuestionarios.ts` | Guardar y recuperar cuestionarios; registro de llamadas |
+| `lib/cuestionarios.ts` | Guardar y recuperar cuestionarios; candado de procesamiento; registro de llamadas |
+| `lib/proceso.ts` | Lo que hacen las rutas: crear, recibir entradas en segundo plano, subir archivos |
+| `lib/avisos.ts` | Mail con el link al cliente y mail con los entregables, con reintentos |
+| `lib/archivos.ts` | Lee lo que suben (imágenes, PDF, Word, Excel, chats de WhatsApp) sin IA cuando se puede |
+| `lib/correo.ts` | Cliente SMTP sin dependencias, con adjuntos |
 
 - El motor no toca la base ni la red salvo por `Dependencias`: las pruebas usan una IA falsa.
 - `avanzar` trabaja sobre una copia del estado: si una llamada falla, lo guardado queda intacto.
+- Las entradas se procesan en segundo plano (algunas llamadas tardan más de un minuto) y la
+  pantalla consulta el estado. El candado es `procesando_desde` en la base.
 - Si la skill cambia su redacción, falla la prueba de contrato: se actualiza `textos.ts`.
-- `npm run simular` corre el motor contra Claude real con los negocios de
-  `pruebas/personas.json`. Empezá siempre por una sola persona.
+- `npm run simular -- <persona>` corre el motor contra Claude real hasta el cuestionario;
+  con `--completo`, hasta los entregables. Empezá siempre por una sola persona.
+- El contrato de la API está en `docs/API.md`.
 
 ## Base de datos
 

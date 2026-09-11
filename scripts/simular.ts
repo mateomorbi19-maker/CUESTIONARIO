@@ -2,22 +2,26 @@
  * Simulador: dueños de negocio inventados completan el cuestionario contra el motor real y
  * Claude real. Sirve para ver qué genera la app antes de mandarle el link a un cliente.
  *
- *   npm run simular                        todas las personas de pruebas/personas.json
- *   npm run simular -- clinica             solo las que tengan "clinica" en el id
- *   npm run simular -- --personas pruebas/privadas/cliente.json
+ *   npm run simular -- clinica                   hasta el cuestionario generado (barato)
+ *   npm run simular -- clinica --completo        hasta los entregables (unos dólares)
+ *   npm run simular -- --personas pruebas/privadas/cliente.json --completo
  *
- * Necesita ANTHROPIC_API_KEY en .env. Cada persona son unas diez a quince llamadas del motor
- * más las de la persona: empezá siempre por una sola.
+ * Una persona puede traer "material" (textos) o "material_archivos" (rutas a archivos de texto)
+ * que se pegan tal cual en la etapa de material; por ejemplo, el guion escrito de un cliente
+ * real. Si no trae, la persona inventa uno.
  *
- * Deja en pruebas/salidas/<id>/ el examen.md, la transcripción y el detalle de las llamadas.
+ * Necesita ANTHROPIC_API_KEY en .env. Empezá siempre por una sola persona.
+ * Deja en pruebas/salidas/<id>/ la transcripción, las llamadas y los archivos generados, también
+ * cuando la corrida falla a mitad de camino.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { clienteClaude, type ClienteIa, type RegistroLlamada } from '../lib/claude'
+import { costoEstimado } from '../lib/costos'
 import { examenAMarkdown, validarExamen } from '../lib/examen'
-import { avanzar, ErrorEntrada, estadoInicial, pantallaActual } from '../lib/motor/motor'
+import { avanzar, estadoInicial, pantallaActual, type Dependencias } from '../lib/motor/motor'
 import type { Entrada, EstadoCuestionario, Pantalla } from '../lib/motor/tipos'
-import { leerSkill } from '../lib/skills'
+import { leerPlantillaClaude, leerSkill } from '../lib/skills'
 
 interface Persona {
   id: string
@@ -27,6 +31,8 @@ interface Persona {
   prueba: string
   caracter: string
   hechos: string[]
+  material?: string[]
+  material_archivos?: string[]
 }
 
 interface Turno {
@@ -34,28 +40,7 @@ interface Turno {
   texto: string
 }
 
-const TURNOS_MAX = 40
 const MODELO_PERSONA = process.env.MODELO_PERSONA || 'claude-sonnet-5'
-
-/*
- * Precios en dólares por millón de tokens, de la tabla de Anthropic de junio de 2026. Es una
- * estimación: escribir en la caché cuesta 1,25 veces la entrada con vida de 5 minutos y 2 veces
- * con vida de una hora; leer de ella, un décimo.
- */
-const PRECIOS: Record<string, { entrada: number; salida: number }> = {
-  'claude-opus-5': { entrada: 5, salida: 25 },
-  'claude-opus-4-8': { entrada: 5, salida: 25 },
-  'claude-sonnet-5': { entrada: 2, salida: 10 },
-}
-
-function costoEstimado(registros: RegistroLlamada[]): number {
-  return registros.reduce((total, r) => {
-    const precio = PRECIOS[r.modelo] ?? PRECIOS['claude-opus-5']
-    const escritura = r.cache === '1h' ? 2 : 1.25
-    const entrada = r.tokensEntrada + r.tokensCacheEscritos * escritura + r.tokensCacheLeidos * 0.1
-    return total + (entrada * precio.entrada + r.tokensSalida * precio.salida) / 1_000_000
-  }, 0)
-}
 
 function sistemaDePersona(persona: Persona): string {
   return `Sos el dueño de este negocio: ${persona.negocio}.
@@ -71,14 +56,38 @@ Reglas:
 - Contestá solamente lo que te preguntan. No adelantes información de otras preguntas.
 - Mensajes cortos, como los escribirías en WhatsApp. Español rioplatense.
 - Si te preguntan algo que no está en la lista, contestá lo que le saldría a un dueño de ese negocio, coherente con lo que ya dijiste.
-- Si te preguntan un dato que tu personaje no tendría, decí que no lo sabés. No inventes números.
+- Si te preguntan un dato que tu personaje no tendría, decí que no lo sabés o usá "no_se". No inventes números.
 - Nunca salgas del personaje ni ayudes a quien pregunta a hacer mejor su trabajo.
 
-Qué devolvés según la pantalla:
-- Una pregunta: tipo "respuesta" y en "texto" tu respuesta.
-- Te piden pegar un chat: si guardás los chats, tipo "respuesta" con un chat creíble de tu negocio que terminó bien, escrito como diálogo. Si no los guardás, tipo "sin_chat".
-- Te hacen elegir entre dos procesos: tipo "eleccion" y en "texto" copiá exacta la opción que elegís.
-- Te muestran cómo entendieron tu negocio: si es así, tipo "confirmar"; si no, tipo "corregir" y en "texto" qué es distinto.`
+Qué devolvés según la pantalla (solo podés usar los tipos que la pantalla permite):
+- Una pregunta: tipo "respuesta" y en "texto" tu respuesta. Si no lo sabés, "no_se". Si no corresponde a tu negocio, "no_aplica" y en "texto" el motivo.
+- Te piden pegar un chat: si guardás los chats, "respuesta" con un chat creíble de tu negocio que terminó bien, escrito como diálogo. Si no los guardás, "sin_chat".
+- Te hacen elegir entre dos procesos: "eleccion" y en "texto" copiá exacta la opción que elegís.
+- Te muestran cómo entendieron tu negocio: si es así, "confirmar"; si no, "corregir" y en "texto" qué es distinto.
+- Te piden juntar material: si todavía no pegaste nada y guardás chats, "texto_material" con UNA conversación creíble de tu negocio. Cuando ya pegaste lo que tenés (máximo tres), "terminar_material". Si no guardás chats, directamente "terminar_material".
+- Te muestran lo que decía tu material: si sigue siendo así, "sigue_igual"; si cambió, "respuesta" con cómo es ahora.`
+}
+
+/** Los tipos de entrada que acepta cada pantalla: la persona no puede elegir otros. */
+function tiposPermitidos(pantalla: Pantalla): Entrada['tipo'][] {
+  switch (pantalla.tipo) {
+    case 'pregunta':
+      return ['respuesta']
+    case 'pedido_chat':
+      return ['respuesta', 'sin_chat']
+    case 'eleccion':
+      return ['eleccion']
+    case 'confirmacion':
+      return ['confirmar', 'corregir']
+    case 'material':
+      return ['texto_material', 'terminar_material']
+    case 'entrevista':
+      return pantalla.propuesta && !pantalla.repregunta ? ['sigue_igual', 'respuesta', 'no_se', 'no_aplica'] : ['respuesta', 'no_se', 'no_aplica']
+    case 'pregunta_final':
+      return ['respuesta', 'no_se']
+    case 'gracias':
+      return []
+  }
 }
 
 function describirPantalla(pantalla: Pantalla): string {
@@ -92,40 +101,53 @@ function describirPantalla(pantalla: Pantalla): string {
     case 'confirmacion':
       return `${pantalla.texto}\n[Botones: "Sí, es así" / "No, te corrijo"]`
     case 'material':
-      return `Material a juntar:\n${pantalla.items.map((i) => `- ${i}`).join('\n')}`
+      return `Antes de seguir, juntá esto:\n${pantalla.items.map((i) => `- ${i}`).join('\n')}\nYa pegaste ${pantalla.textos.length} texto(s).${pantalla.aviso ? `\nAviso: ${pantalla.aviso}` : ''}`
+    case 'entrevista': {
+      const propuesta = pantalla.propuesta ? `\nEn lo que subiste dice: "${pantalla.propuesta.texto}"\n[Botones: "Sigue así" / "Cambió"]` : ''
+      const repregunta = pantalla.repregunta ? `\nRepregunta: ${pantalla.repregunta}` : ''
+      return `Sección ${pantalla.seccion.numero} de 9 · ${pantalla.seccion.titulo}\n${pantalla.pregunta.id}. ${pantalla.pregunta.texto}${propuesta}${repregunta}`
+    }
+    case 'pregunta_final':
+      return `Últimas preguntas · ${pantalla.numero} de ${pantalla.total}\n${pantalla.texto}`
+    case 'gracias':
+      return pantalla.texto
   }
 }
 
 function describirEntrada(entrada: Entrada): string {
   switch (entrada.tipo) {
     case 'respuesta':
+      return entrada.texto
     case 'corregir':
-      return entrada.tipo === 'corregir' ? `[Corrige] ${entrada.texto}` : entrada.texto
-    case 'sin_chat':
-      return '[No guardo los chats]'
+      return `[Corrige] ${entrada.texto}`
+    case 'texto_material':
+      return `[Pega material] ${entrada.texto}`
+    case 'no_aplica':
+      return `[No aplica] ${entrada.texto}`
     case 'eleccion':
       return `[Elige] ${entrada.opcion}`
-    case 'confirmar':
-      return '[Sí, es así]'
+    case 'quitar_texto':
+      return '[Quita un texto]'
+    default:
+      return `[${entrada.tipo}]`
   }
 }
 
-async function responderComoPersona(persona: Persona, pantalla: Pantalla, historia: Turno[], ia: ClienteIa, aviso = ''): Promise<Entrada> {
+async function responderComoPersona(persona: Persona, pantalla: Pantalla, historia: Turno[], ia: ClienteIa): Promise<Entrada> {
+  // Los últimos turnos alcanzan para mantener coherencia sin mandar la entrevista entera cada vez.
   const pasado = historia.length
-    ? `Lo que pasó hasta ahora en el formulario:\n\n${historia.map((t) => `${t.quien === 'formulario' ? 'Formulario' : 'Vos'}: ${t.texto}`).join('\n\n')}\n\n`
+    ? `Lo último que pasó en el formulario:\n\n${historia.slice(-16).map((t) => `${t.quien === 'formulario' ? 'Formulario' : 'Vos'}: ${t.texto}`).join('\n\n')}\n\n`
     : ''
+  const permitidos = tiposPermitidos(pantalla)
   const salida = await ia.pedirJson<{ tipo: Entrada['tipo']; texto: string }>({
     paso: 'persona',
     sistema: [sistemaDePersona(persona)],
-    mensaje: `${pasado}Pantalla actual:\n\n${describirPantalla(pantalla)}${aviso}`,
+    mensaje: `${pasado}Pantalla actual:\n\n${describirPantalla(pantalla)}\n\nTipos que acepta esta pantalla: ${permitidos.join(', ')}.`,
     esquema: {
       type: 'object',
       additionalProperties: false,
       required: ['tipo', 'texto'],
-      properties: {
-        tipo: { type: 'string', enum: ['respuesta', 'sin_chat', 'eleccion', 'confirmar', 'corregir'] },
-        texto: { type: 'string' },
-      },
+      properties: { tipo: { type: 'string', enum: permitidos }, texto: { type: 'string' } },
     },
     // La persona contesta decenas de veces con el mismo sistema: acá la caché sí rinde.
     cache: '5m',
@@ -134,59 +156,84 @@ async function responderComoPersona(persona: Persona, pantalla: Pantalla, histor
   })
 
   switch (salida.tipo) {
-    case 'sin_chat':
-      return { tipo: 'sin_chat' }
-    case 'confirmar':
-      return { tipo: 'confirmar' }
-    case 'corregir':
-      return { tipo: 'corregir', texto: salida.texto }
     case 'eleccion': {
       const opciones = pantalla.tipo === 'eleccion' ? pantalla.opciones : []
       const elegida = salida.texto.trim()
-      const opcion = opciones.find((o) => o === elegida) ?? opciones.find((o) => o.includes(elegida) || elegida.includes(o))
-      return { tipo: 'eleccion', opcion: opcion ?? elegida }
+      const opcion = opciones.find((o) => o === elegida) ?? opciones.find((o) => o.includes(elegida) || elegida.includes(o)) ?? opciones[0]
+      return { tipo: 'eleccion', opcion }
     }
+    case 'respuesta':
+    case 'corregir':
+    case 'texto_material':
+    case 'no_aplica':
+      // Un texto vacío lo rechazaría la pantalla: se reemplaza por "no sé" o por lo mínimo que acepta.
+      if (!salida.texto.trim()) return salida.tipo === 'respuesta' && permitidos.includes('no_se') ? { tipo: 'no_se' } : { tipo: salida.tipo, texto: 'No sé.' }
+      return { tipo: salida.tipo, texto: salida.texto }
     default:
-      return { tipo: 'respuesta', texto: salida.texto }
+      return { tipo: salida.tipo } as Entrada
   }
 }
 
-async function simular(persona: Persona) {
+interface Corrida {
+  estado: EstadoCuestionario
+  historia: Turno[]
+  registros: RegistroLlamada[]
+  error: string | null
+}
+
+async function simular(persona: Persona, completo: boolean): Promise<Corrida> {
   const registros: RegistroLlamada[] = []
   const iaMotor = clienteClaude((r) => {
     registros.push(r)
   })
   const iaPersona = clienteClaude(() => {}, MODELO_PERSONA)
-  const historia: Turno[] = []
-  let estado: EstadoCuestionario = estadoInicial(persona.negocio)
-
-  for (let turno = 1; estado.etapa !== 'material'; turno++) {
-    if (turno > TURNOS_MAX) throw new Error(`Pasaron ${TURNOS_MAX} turnos sin llegar al cuestionario: mirá la transcripción.`)
-    const pantalla = pantallaActual(estado)
-
-    // Si la persona manda algo que la pantalla no acepta, se le avisa y reintenta una vez.
-    let entrada = await responderComoPersona(persona, pantalla, historia, iaPersona)
-    try {
-      estado = await avanzar(estado, entrada, { ia: iaMotor, skill: leerSkill })
-    } catch (err) {
-      if (!(err instanceof ErrorEntrada)) throw err
-      entrada = await responderComoPersona(persona, pantalla, historia, iaPersona, `\n\n(Lo anterior no corresponde a esta pantalla: ${err.message})`)
-      estado = await avanzar(estado, entrada, { ia: iaMotor, skill: leerSkill })
-    }
-    historia.push({ quien: 'formulario', texto: describirPantalla(pantalla) }, { quien: 'dueño', texto: describirEntrada(entrada) })
+  const dep: Dependencias = {
+    ia: iaMotor,
+    skill: leerSkill,
+    plantillaClaude: leerPlantillaClaude,
+    leerArchivo: async () => {
+      throw new Error('El simulador no sube archivos: el material va como texto pegado.')
+    },
   }
+  const historia: Turno[] = []
+  const pendientesDeMaterial = [...(persona.material ?? [])]
+  let estado: EstadoCuestionario = estadoInicial(persona.negocio)
+  const fin = completo ? 'terminado' : 'material'
+  const turnosMaximos = completo ? 220 : 40
 
-  return { estado, historia, registros }
+  try {
+    for (let turno = 1; estado.etapa !== fin; turno++) {
+      if (turno > turnosMaximos) throw new Error(`Pasaron ${turnosMaximos} turnos sin llegar a "${fin}".`)
+      const pantalla = pantallaActual(estado)
+
+      // Material fijo de la persona (por ejemplo, el guion real de un cliente): se pega tal cual.
+      const entrada: Entrada =
+        pantalla.tipo === 'material' && persona.material
+          ? pendientesDeMaterial.length
+            ? { tipo: 'texto_material', texto: pendientesDeMaterial.shift()! }
+            : { tipo: 'terminar_material' }
+          : await responderComoPersona(persona, pantalla, historia, iaPersona)
+
+      historia.push({ quien: 'formulario', texto: describirPantalla(pantalla) }, { quien: 'dueño', texto: describirEntrada(entrada) })
+      estado = await avanzar(estado, entrada, dep)
+      if (turno % 10 === 0) process.stdout.write(`${turno}… `)
+    }
+    return { estado, historia, registros, error: null }
+  } catch (err) {
+    return { estado, historia, registros, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
-function transcripcionMarkdown(persona: Persona, historia: Turno[], estado: EstadoCuestionario): string {
+function transcripcionMarkdown(persona: Persona, corrida: Corrida): string {
+  const { estado, historia, error } = corrida
   const cuerpo = historia.map((t) => `**${t.quien === 'formulario' ? 'Formulario' : persona.negocio}:**\n\n${t.texto}`).join('\n\n---\n\n')
-  const pendientes = estado.pendientesExamen.length ? `\n\nErrores que quedaron en el cuestionario:\n${estado.pendientesExamen.map((e) => `- ${e}`).join('\n')}` : ''
+  const avisos = [...estado.pendientesExamen, ...estado.avisos]
   return `# Transcripción — ${persona.negocio}
 
 Arquetipo esperado: ${persona.arquetipo_esperado} · Obtenido: ${estado.clasificacion?.arquetipo ?? '-'}
 Acción terminal esperada: ${persona.accion_terminal_esperada} · Obtenida: ${estado.clasificacion?.accionTerminal ?? '-'}
-Qué prueba este caso: ${persona.prueba}${pendientes}
+Qué prueba este caso: ${persona.prueba}
+Etapa final: ${estado.etapa}${error ? `\n\nFALLÓ: ${error}` : ''}${avisos.length ? `\n\nAvisos:\n${avisos.map((a) => `- ${a}`).join('\n')}` : ''}
 
 ---
 
@@ -195,26 +242,30 @@ ${cuerpo}
 }
 
 async function main() {
-  // Sin clave fallarían todas las personas una por una: mejor frenar acá con un solo aviso.
   if (!process.env.ANTHROPIC_API_KEY) {
     console.error('Falta ANTHROPIC_API_KEY. Copiá .env.example a .env y pegá ahí tu clave de Anthropic.')
     process.exit(1)
   }
 
   const argumentos = process.argv.slice(2)
+  const completo = argumentos.includes('--completo')
   const indicePersonas = argumentos.indexOf('--personas')
   const archivo = indicePersonas >= 0 ? argumentos[indicePersonas + 1] : join('pruebas', 'personas.json')
   // El valor que sigue a --personas es la ruta del archivo, no el filtro.
   const filtro = argumentos.find((a, i) => !a.startsWith('--') && (indicePersonas < 0 || i !== indicePersonas + 1))
 
   const personas: Persona[] = JSON.parse(await readFile(archivo, 'utf8'))
+  for (const persona of personas) {
+    // Un guion entero no entra cómodo adentro de un JSON: puede venir en archivos aparte.
+    for (const ruta of persona.material_archivos ?? []) (persona.material ??= []).push(await readFile(ruta, 'utf8'))
+  }
   const elegidas = filtro ? personas.filter((p) => p.id.includes(filtro)) : personas
   if (!elegidas.length) {
     console.error(`No hay ninguna persona en ${archivo} cuyo id contenga "${filtro}".`)
     process.exit(1)
   }
 
-  console.log(`Simulando ${elegidas.length} persona(s). Motor: ${clienteClaude().modelo} · Persona: ${MODELO_PERSONA}\n`)
+  console.log(`Simulando ${elegidas.length} persona(s) ${completo ? 'de punta a punta' : 'hasta el cuestionario'}. Motor: ${clienteClaude().modelo} · Persona: ${MODELO_PERSONA}\n`)
   const resumen: Record<string, unknown>[] = []
 
   for (const persona of elegidas) {
@@ -223,35 +274,42 @@ async function main() {
     process.stdout.write(`  ${persona.id} ... `)
     const inicio = Date.now()
 
-    try {
-      const { estado, historia, registros } = await simular(persona)
-      if (estado.examen) await writeFile(join(carpeta, 'examen.md'), examenAMarkdown(estado.examen))
-      await writeFile(join(carpeta, 'transcripcion.md'), transcripcionMarkdown(persona, historia, estado))
-      await writeFile(join(carpeta, 'llamadas.json'), JSON.stringify(registros, null, 2))
-
-      const validacion = estado.examen ? validarExamen(estado.examen) : null
-      const fila = {
-        id: persona.id,
-        esperado: persona.arquetipo_esperado,
-        obtenido: estado.clasificacion?.arquetipo ?? '-',
-        preguntas: validacion?.cantidadPreguntas ?? 0,
-        errores: validacion?.errores.length ?? '-',
-        avisos: validacion?.avisos.length ?? '-',
-        llamadas: registros.length,
-        usd: Number(costoEstimado(registros).toFixed(3)),
-        seg: Math.round((Date.now() - inicio) / 1000),
-      }
-      resumen.push(fila)
-      console.log(`ok · ${fila.preguntas} preguntas · ${fila.errores} errores · US$ ${fila.usd} · ${fila.seg}s`)
-    } catch (err) {
-      resumen.push({ id: persona.id, error: err instanceof Error ? err.message : String(err) })
-      console.log(`FALLÓ · ${err instanceof Error ? err.message : err}`)
+    const corrida = await simular(persona, completo)
+    const { estado, registros, error } = corrida
+    if (estado.examen) await writeFile(join(carpeta, 'examen.md'), examenAMarkdown(estado.examen))
+    if (estado.entregables) {
+      await writeFile(join(carpeta, 'brief-comercial.md'), estado.entregables.brief)
+      await writeFile(join(carpeta, 'CLAUDE.md'), estado.entregables.claude)
+      await writeFile(join(carpeta, 'cierre.md'), estado.entregables.cierre)
     }
+    await writeFile(join(carpeta, 'transcripcion.md'), transcripcionMarkdown(persona, corrida))
+    await writeFile(join(carpeta, 'llamadas.json'), JSON.stringify(registros, null, 2))
+    await writeFile(join(carpeta, 'estado.json'), JSON.stringify(estado, null, 2))
+
+    const validacion = estado.examen ? validarExamen(estado.examen) : null
+    const respuestas = Object.values(estado.entrevista.respuestas)
+    const fila = {
+      id: persona.id,
+      etapa: estado.etapa,
+      obtenido: estado.clasificacion?.arquetipo ?? '-',
+      preguntas: validacion?.cantidadPreguntas ?? 0,
+      respondidas: respuestas.length,
+      pendientes: respuestas.filter((r) => r.estado === 'pendiente').length,
+      propuestas: Object.keys(estado.entrevista.propuestas).length,
+      finales: estado.preguntasFinales.length,
+      avisos: estado.avisos.length,
+      llamadas: registros.length,
+      usd: Number(costoEstimado(registros).toFixed(2)),
+      min: Number(((Date.now() - inicio) / 60_000).toFixed(1)),
+      error,
+    }
+    resumen.push(fila)
+    console.log(error ? `FALLÓ en ${estado.etapa} · ${error}` : `ok · ${fila.respondidas} respuestas · ${fila.pendientes} pendientes · US$ ${fila.usd} · ${fila.min} min`)
   }
 
   await writeFile(join('pruebas', 'salidas', 'resumen.json'), JSON.stringify(resumen, null, 2))
   console.log('\n--- Resumen ---')
-  console.table(resumen)
+  console.table(resumen.map(({ error: _error, ...resto }) => resto))
   console.log('\nLos archivos están en pruebas/salidas/<id>/')
 }
 

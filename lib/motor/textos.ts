@@ -1,10 +1,12 @@
 /**
- * Textos que la skill `mi-negocio` manda decir tal cual.
+ * Textos fijos que muestra la app sin pasar por la IA.
  *
- * Están acá para que la app los muestre sin gastar una llamada a la IA. La prueba de
- * contrato (pruebas/contrato.test.ts) verifica que cada uno siga apareciendo letra por letra
- * en skills/mi-negocio/SKILL.md: si la skill cambia, la prueba falla y se actualiza acá.
+ * Los que vienen de una skill están marcados: la prueba de contrato (pruebas/contrato.test.ts)
+ * verifica que sigan apareciendo letra por letra en su SKILL.md. Si la skill cambia, la prueba
+ * falla y se actualiza acá.
  */
+
+// ---- De skills/mi-negocio/SKILL.md ----
 
 export const INTRODUCCION_TRIAGE =
   'Antes de armarte el cuestionario necesito entender cómo funciona tu negocio. Seis preguntas, dos minutos.'
@@ -36,5 +38,21 @@ export const NOTA_GENERICO =
 export const ELECCION_HIBRIDO =
   'Tenés dos procesos distintos conviviendo. La primera versión del agente sirve a uno solo, después le sumás el otro. ¿Cuál te resuelve más problema hoy?'
 
-/** Este no es de la skill: es el botón de la app para quien no guarda los chats. */
+// ---- De skills/entrevista/SKILL.md ----
+
+/** Regla dura 4: cuando contesta lo que "debería decir el bot" en vez de lo que hace hoy. */
+export const FRASE_RESPONDE_COMO_AGENTE = 'Pará. No me digas qué debería decir el agente. Decime qué decís vos hoy.'
+
+// ---- De la app ----
+
 export const SIN_CHAT = 'No guardo los chats'
+
+export const AVISO_SIN_MATERIAL =
+  'Todavía no subiste ni pegaste nada. Con conversaciones reales la entrevista sale mucho mejor, porque cada una muestra algo distinto de cómo vendés. Si no las tenés, podés seguir igual.'
+
+export function avisoFaltantes(faltan: string[]): string {
+  return `Te falta: ${faltan.join('; ')}. Cada conversación muestra algo distinto de cómo vendés, así que si las tenés, subilas o pegalas. Si no, podés seguir igual.`
+}
+
+export const GRACIAS =
+  'Listo, terminaste. Gracias por el tiempo y por el detalle: con lo que contaste se arma el agente de tu negocio. Ya podés cerrar esta página.'
