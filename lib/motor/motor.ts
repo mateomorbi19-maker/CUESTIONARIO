@@ -519,7 +519,10 @@ function marcarNoLeido(archivo: ArchivoMaterial, err: unknown): ProblemaDeLectur
   if (err.causa === 'cortada' && archivo.tipo === 'pdf') {
     // Un documento largo de verdad: lo leído hasta el techo sirve. En una imagen no pasa nunca
     // salvo que Claude se quede repitiendo, y eso no se guarda.
-    const leido = textoDeJsonCortado(err.parcial ?? '').trim()
+    // La última línea quedó a medias («Modelo B: $2» de un precio más largo): propuesta como texto
+    // literal, el dueño confirmaría un dato que no es. Se descarta.
+    const cortado = textoDeJsonCortado(err.parcial ?? '')
+    const leido = (cortado.includes('\n') ? cortado.slice(0, cortado.lastIndexOf('\n')) : cortado).trim()
     if (leido) {
       archivo.texto = `${leido}\n\n${textos.MARCA_TRANSCRIPCION_CORTADA}`
       archivo.problema = textos.PROBLEMA_LARGO

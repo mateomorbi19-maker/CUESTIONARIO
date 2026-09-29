@@ -435,7 +435,9 @@ describe('archivos que Claude no puede leer', () => {
     // Se queda en el material para que vea la nota del archivo, con todo lo leído guardado.
     assert.equal(estado.etapa, 'material')
     const [catalogo, chat] = estado.material.archivos
-    assert.ok(catalogo.texto?.startsWith('Lista de precios\nModelo A: $100\nModelo B: $2'))
+    assert.ok(catalogo.texto?.startsWith('Lista de precios\nModelo A: $100\n'))
+    // La línea cortada a mitad de un precio no queda como si fuera un dato.
+    assert.ok(!catalogo.texto?.includes('Modelo B: $2'))
     assert.match(catalogo.texto ?? '', /se cortó/i)
     assert.ok(catalogo.problema)
     assert.equal(chat.texto, 'Cliente: hola')
