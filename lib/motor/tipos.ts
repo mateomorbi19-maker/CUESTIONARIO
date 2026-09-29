@@ -50,10 +50,15 @@ export interface ArchivoMaterial {
   mime: string
   tipo: TipoMaterial
   bytes: number
-  /** Texto extraído al subirlo o transcripto por Claude. null mientras falta transcribirlo. */
+  /**
+   * Texto extraído al subirlo o transcripto por Claude. null mientras falta transcribirlo; vacío
+   * si no se pudo leer, para no volver a intentarlo en cada «Seguir».
+   */
   texto: string | null
   /** Los que se suben en `pedido_chat` son el chat real del triage. */
   etapa: 'pedido_chat' | 'material'
+  /** Si no se pudo leer entero: qué pasó, dicho para el dueño. */
+  problema?: string
 }
 
 export interface TextoMaterial {
@@ -158,6 +163,8 @@ export interface ArchivoPublico {
   id: string
   nombre: string
   tipo: TipoMaterial
+  /** No se pudo leer entero: se muestra junto al archivo para que lo cambie o siga igual. */
+  problema: string | null
 }
 
 export interface TextoPublico {

@@ -417,7 +417,9 @@ Compará lo pedido con lo que hay. En "faltan" van, con palabras simples y corta
     esquema: objeto({ faltan: LISTA_DE_TEXTOS }),
     cache: null,
     esfuerzo: 'medium',
-    maxTokens: 4000,
+    // Sonnet 5 piensa por defecto y eso cuenta dentro del techo. Con 45.000 caracteres de material
+    // usó 780; con más material piensa más, y un corte acá frena al dueño antes de la entrevista.
+    maxTokens: 16000,
   }
 }
 
@@ -559,7 +561,9 @@ Devolvé:
     }),
     cache: null,
     esfuerzo: 'high',
-    maxTokens: 32000,
+    // En una simulación completa usó 11.300 (7.500 de pensamiento). El techo no cuesta si no se usa, y un corte acá
+    // deja al dueño trabado después de contestar todo.
+    maxTokens: 64000,
   }
 }
 
@@ -593,6 +597,8 @@ Devolvé:
     esquema: objeto({ brief: TEXTO, claude: TEXTO, pendientes: LISTA_DE_TEXTOS }),
     cache: null,
     esfuerzo: 'high',
-    maxTokens: 32000,
+    // El paso más largo: en una simulación completa, Opus usó 30.270 de 32.000 y Sonnet 5, 23.950 (9.100 de
+    // pensamiento). Un brief completo más el pensamiento pasa los 32.000 y se corta al final de todo.
+    maxTokens: 64000,
   }
 }

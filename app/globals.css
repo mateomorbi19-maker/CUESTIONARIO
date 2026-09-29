@@ -827,6 +827,14 @@ p.aviso {
   color: var(--error);
 }
 
+/* No es un error de ella: se subió bien pero no se pudo leer entero. */
+.archivo-problema {
+  margin-top: 0.2rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--aviso-tinta);
+}
+
 .archivo-accion {
   padding-inline: 0.65rem;
 }

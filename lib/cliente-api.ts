@@ -143,6 +143,7 @@ export const TIPOS_ACEPTADOS =
   'image/jpeg,image/png,image/webp,image/gif,application/pdf,.docx,.xlsx,.txt,.csv,.md,.zip'
 
 const MAXIMO_BYTES = 20 * 1024 * 1024
+const MAXIMO_BYTES_IMAGEN = Math.floor((10 * 1024 * 1024) / 4) * 3
 const EXTENSIONES_ACEPTADAS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'docx', 'xlsx', 'txt', 'csv', 'md', 'zip']
 const IMAGENES_ACEPTADAS = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
@@ -155,6 +156,11 @@ export function problemaDeArchivo(archivo: File): string | null {
     return `«${archivo.name}» pesa más de 20 MB. Si es un PDF, probá achicarlo; si es un chat, mandá capturas o el .zip que exporta WhatsApp.`
   }
   const extension = archivo.name.includes('.') ? archivo.name.split('.').pop()!.toLowerCase() : ''
+  // Claude no lee imágenes de más de 7,5 MB: el servidor las rechaza (lib/archivos.ts).
+  const esImagen = IMAGENES_ACEPTADAS.includes(archivo.type) || ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(extension)
+  if (esImagen && archivo.size > MAXIMO_BYTES_IMAGEN) {
+    return `«${archivo.name}» pesa más de 7 MB y así no se puede leer. Mandá una captura de pantalla común, o recortala antes de subirla.`
+  }
   // Algunos celulares comparten imágenes sin extensión en el nombre: ahí manda el tipo.
   if (EXTENSIONES_ACEPTADAS.includes(extension) || IMAGENES_ACEPTADAS.includes(archivo.type)) {
     return null

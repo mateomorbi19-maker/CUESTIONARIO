@@ -67,10 +67,12 @@ interface PropsFallo {
   error: string | null
   onReintentar: () => void
   reintentando: boolean
+  /** En el material: volver a la lista para quitar o cambiar un archivo en vez de reintentar igual. */
+  onVolver?: () => void
 }
 
 /** El servidor aceptó la entrada pero no pudo procesarla. Se reintenta sin volver a escribir. */
-export function FalloProceso({ mensaje, error, onReintentar, reintentando }: PropsFallo) {
+export function FalloProceso({ mensaje, error, onReintentar, reintentando, onVolver }: PropsFallo) {
   return (
     <section className="estado">
       <h1 className="estado-titulo" tabIndex={-1}>
@@ -85,6 +87,11 @@ export function FalloProceso({ mensaje, error, onReintentar, reintentando }: Pro
         <Boton onClick={onReintentar} enCurso={reintentando} textoEnCurso="Reintentando…">
           Reintentar
         </Boton>
+        {onVolver && (
+          <Boton variante="secundario" onClick={onVolver} disabled={reintentando}>
+            Volver a lo que subiste
+          </Boton>
+        )}
       </div>
     </section>
   )

@@ -366,6 +366,159 @@ describe('material', () => {
     const pedido = ia.pedidos.find((p) => p.paso === 'transcribir_archivo')!
     assert.ok(Array.isArray(pedido.mensaje) && pedido.mensaje[0].type === 'document')
   })
+
+  it('una misma pregunta propuesta en varios pedazos se junta en vez de quedarse con el último', async () => {
+    const ia = iaFalsa({
+      revisar_material: [{ faltan: [] }],
+      proponer_respuestas: [
+        {
+          propuestas: [
+            { id: '1.2', texto: 'Te mando un video corto con las diferencias entre los modelos.', fuente: 'Texto pegado 1' },
+            { id: '1.2', texto: 'Trabajamos solo con cuero ecológico resistente al agua y al sol, para que dure años.', fuente: 'Texto pegado 1' },
+            { id: '1.2', texto: 'Esto no está en el material', fuente: 'Texto pegado 1' },
+          ],
+        },
+      ],
+    })
+    const estado = await aplicar(estadoEnMaterial(), [{ tipo: 'texto_material', texto: GUION }, { tipo: 'terminar_material' }], dependencias(ia))
+    assert.equal(
+      estado.entrevista.propuestas['1.2'].texto,
+      'Te mando un video corto con las diferencias entre los modelos.\n\n[…]\n\nTrabajamos solo con cuero ecológico resistente al agua y al sol, para que dure años.',
+    )
+  })
+})
+
+describe('archivos que Claude no puede leer', () => {
+  function conArchivos(...archivos: [id: string, tipo: 'imagen' | 'pdf'][]): EstadoCuestionario {
+    const estado = estadoEnMaterial()
+    for (const [id, tipo] of archivos) {
+      estado.material.archivos.push({
+        id,
+        nombre: `${id}.${tipo === 'pdf' ? 'pdf' : 'png'}`,
+        mime: tipo === 'pdf' ? 'application/pdf' : 'image/png',
+        tipo,
+        bytes: 10,
+        texto: null,
+        etapa: 'material',
+      })
+    }
+    return estado
+  }
+
+  /** Transcribe según el archivo: cada id elige qué le pasa. */
+  function iaPorArchivo(resultados: Record<string, () => unknown>, resto: Record<string, unknown[]> = {}) {
+    const base = iaFalsa(resto)
+    return {
+      ...base,
+      async pedirJson<T>(pedido: PedidoJson): Promise<T> {
+        if (pedido.paso !== 'transcribir_archivo') return base.pedirJson<T>(pedido)
+        base.pedidos.push(pedido)
+        const texto = (pedido.mensaje as { type: string; text?: string }[]).find((b) => b.type === 'text')?.text ?? ''
+        const id = /Archivo: (\S+)\./.exec(texto)?.[1] ?? ''
+        return resultados[id]() as T
+      },
+    }
+  }
+
+  it('un PDF que se corta por largo guarda lo que alcanzó a leer, avisa y sigue sin volver a leerlo', async () => {
+    const ia = iaPorArchivo(
+      {
+        catalogo: () => {
+          throw new ErrorIa('se cortó', 'cortada', '{"texto": "Lista de precios\\nModelo A: $100\\nModelo B: $2')
+        },
+        chat: () => ({ texto: 'Cliente: hola' }),
+      },
+      { revisar_material: [{ faltan: [] }], proponer_respuestas: [{ propuestas: [] }] },
+    )
+    let estado = await avanzar(conArchivos(['catalogo', 'pdf'], ['chat', 'imagen']), { tipo: 'terminar_material' }, dependencias(ia))
+
+    // Se queda en el material para que vea la nota del archivo, con todo lo leído guardado.
+    assert.equal(estado.etapa, 'material')
+    const [catalogo, chat] = estado.material.archivos
+    assert.ok(catalogo.texto?.startsWith('Lista de precios\nModelo A: $100\nModelo B: $2'))
+    assert.match(catalogo.texto ?? '', /se cortó/i)
+    assert.ok(catalogo.problema)
+    assert.equal(chat.texto, 'Cliente: hola')
+    assert.equal(chat.problema, undefined)
+    assert.ok(estado.avisos.some((a) => a.includes('catalogo.pdf')))
+    const pantalla = pantallaActual(estado)
+    assert.ok(pantalla.tipo === 'material')
+    assert.ok(pantalla.archivos.find((a) => a.id === 'catalogo')?.problema)
+
+    estado = await avanzar(estado, { tipo: 'terminar_material' }, dependencias(ia))
+    assert.equal(estado.etapa, 'entrevista')
+    assert.equal(pasos(ia).filter((p) => p === 'transcribir_archivo').length, 2)
+  })
+
+  it('una imagen rechazada, una cortada o un archivo que ya no está quedan sin leer y el resto se guarda', async () => {
+    const ia = iaPorArchivo({
+      pesada: () => {
+        throw new ErrorIa('image exceeds 10 MB maximum', 'invalido')
+      },
+      enganchada: () => {
+        throw new ErrorIa('se cortó', 'cortada', '{"texto": "hola hola hola hola')
+      },
+      buena: () => ({ texto: 'Cliente: ¿tienen turno el sábado?' }),
+    })
+    const dep = dependencias(ia)
+    dep.leerArchivo = async (archivo) => {
+      if (archivo.id === 'borrada') throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
+      return Buffer.from('contenido')
+    }
+    const estado = await avanzar(
+      conArchivos(['pesada', 'imagen'], ['enganchada', 'imagen'], ['borrada', 'imagen'], ['buena', 'imagen']),
+      { tipo: 'terminar_material' },
+      dep,
+    )
+    assert.equal(estado.etapa, 'material')
+    const porId = Object.fromEntries(estado.material.archivos.map((a) => [a.id, a]))
+    for (const id of ['pesada', 'enganchada', 'borrada']) {
+      // Texto vacío y no null: no se vuelve a intentar en cada «Seguir».
+      assert.equal(porId[id].texto, '', id)
+      assert.ok(porId[id].problema, id)
+      assert.ok(estado.avisos.some((a) => a.includes(porId[id].nombre)), id)
+    }
+    assert.equal(porId.buena.texto, 'Cliente: ¿tienen turno el sábado?')
+  })
+
+  it('un error pasajero frena el paso sin arrancar más transcripciones', async () => {
+    let llamadas = 0
+    const ia: ClienteIa = {
+      modelo: 'falso',
+      async pedirJson<T>(): Promise<T> {
+        llamadas++
+        if (llamadas === 1) throw new ErrorIa('overloaded', 'api')
+        return { texto: 'Cliente: hola' } as T
+      },
+    }
+    const estado = conArchivos(['a', 'imagen'], ['b', 'imagen'], ['c', 'imagen'], ['d', 'imagen'], ['e', 'imagen'], ['f', 'imagen'])
+    await assert.rejects(avanzar(estado, { tipo: 'terminar_material' }, dependencias(ia)), ErrorIa)
+    // Las cuatro que ya habían arrancado terminan; las otras dos no se piden.
+    assert.equal(llamadas, 4)
+  })
+
+  it('en el pedido de chat, una captura que no se lee no frena la clasificación', async () => {
+    const ia = iaPorArchivo(
+      {
+        rota: () => {
+          throw new ErrorIa('Could not process image', 'invalido')
+        },
+      },
+      { clasificar: [clasificacionSimple] },
+    )
+    const estado = estadoInicial('Clínica')
+    estado.etapa = 'pedido_chat'
+    estado.material.archivos.push({ id: 'rota', nombre: 'rota.png', mime: 'image/png', tipo: 'imagen', bytes: 10, texto: null, etapa: 'pedido_chat' })
+    const siguiente = await avanzar(estado, respuesta('Cliente: quiero un turno'), dependencias(ia))
+    assert.equal(siguiente.etapa, 'confirmacion')
+    assert.equal(siguiente.chat, 'Cliente: quiero un turno')
+    assert.ok(siguiente.avisos.some((a) => a.includes('rota.png')))
+
+    // Sin texto y sin ninguna captura legible es como no tener el chat: se reconstruye.
+    const sinNada = await avanzar(estado, respuesta(''), dependencias(iaPorArchivo({ rota: () => { throw new ErrorIa('Could not process image', 'invalido') } })))
+    assert.equal(sinNada.etapa, 'reconstruccion')
+    assert.equal(sinNada.chat, null)
+  })
 })
 
 describe('entrevista', () => {

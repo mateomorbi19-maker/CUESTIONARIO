@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EstadoPublico } from '@/lib/estado-publico'
 import type { Entrada, Pantalla } from '@/lib/motor/tipos'
 import { Confirmacion } from '../pantallas/Confirmacion'
@@ -14,6 +14,9 @@ import { Espera } from './Espera'
 import { FalloProceso } from './Estados'
 import { Marco } from './Marco'
 import { Aviso } from './Mensajes'
+
+const AVISO_VOLVIO_A_ARCHIVOS =
+  'Lo último que mandaste no se terminó de leer. Podés quitar o cambiar un archivo y volver a tocar el botón de seguir: lo demás está guardado.'
 
 /** Para la galería de /demo: mostrar una pantalla con su desplegable ya abierto. */
 export type ModoInicial = 'correccion' | 'cambio' | 'no_aplica'
@@ -57,10 +60,20 @@ export function VistaCuestionario({
     estado.procesando &&
     pantalla.tipo === 'material' &&
     esCambioDeMaterial(estado.entradaPendiente ?? ultimaEntrada)
+  // Si el material falla por un archivo, reintentar igual falla igual: tiene que poder volver a la
+  // lista para quitarlo. El «Listo, seguir» de ahí manda lo mismo que «Reintentar».
+  const [enArchivos, setEnArchivos] = useState(false)
+  const puedeVolver = pantalla.tipo === 'material'
+  const volvio = puedeVolver && enArchivos
+  // Vale para ese fallo nada más: al mandar de nuevo se limpia el error, y si el intento siguiente
+  // falla por otra cosa (el tope, la clave) tiene que ver ese mensaje y «Reintentar».
+  useEffect(() => {
+    if (!estado.error) setEnArchivos(false)
+  }, [estado.error])
 
   let vista: 'espera' | 'fallo' | 'pantalla' = 'pantalla'
   if (estado.procesando && !enLinea) vista = 'espera'
-  else if (estado.error && estado.entradaPendiente) vista = 'fallo'
+  else if (estado.error && estado.entradaPendiente && !volvio) vista = 'fallo'
 
   const identidad = vista === 'pantalla' ? identidadDe(pantalla) : vista
   const contenedor = useRef<HTMLDivElement>(null)
@@ -103,12 +116,13 @@ export function VistaCuestionario({
               error={acciones.error}
               onReintentar={onReintentar}
               reintentando={reintentando}
+              onVolver={puedeVolver ? () => setEnArchivos(true) : undefined}
             />
           )}
           {vista === 'pantalla' && (
             <>
               {/* Un fallo sin entrada para reintentar: se avisa y se puede volver a mandar. */}
-              {estado.error && <Aviso texto={estado.error} />}
+              {estado.error && <Aviso texto={volvio ? AVISO_VOLVIO_A_ARCHIVOS : estado.error} />}
               <PantallaActual key={identidad} pantalla={pantalla} modoInicial={modoInicial} />
             </>
           )}

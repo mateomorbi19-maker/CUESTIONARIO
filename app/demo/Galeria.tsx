@@ -162,6 +162,7 @@ function VarianteDemo({ variante, rechazar, compacto = false }: PropsVariante) {
         id: `archivo-${Date.now()}-${Math.round(Math.random() * 1000)}`,
         nombre: archivo.name,
         tipo: tipoDe(archivo),
+        problema: null,
       }
       setEstado((e) => e && conArchivos(e, (archivos) => [...archivos, nuevo]))
       setMarcaGuardado((n) => n + 1)

@@ -421,3 +421,49 @@ describe('leerArchivo con archivos vacíos o pesados', () => {
     assert.equal(leerArchivo('lista.pdf', datos).tipo, 'pdf')
   })
 })
+
+describe('leerArchivo rechaza las imágenes que Claude no acepta', () => {
+  // Solo los encabezados: alcanzan para leer el tamaño sin armar una imagen entera.
+  function png(ancho: number, alto: number): Buffer {
+    const datos = Buffer.alloc(33)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13]).copy(datos)
+    datos.write('IHDR', 12, 'latin1')
+    datos.writeUInt32BE(ancho, 16)
+    datos.writeUInt32BE(alto, 20)
+    return datos
+  }
+
+  function jpeg(ancho: number, alto: number): Buffer {
+    const app0 = Buffer.from([0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0])
+    const sof = Buffer.from([0xff, 0xc2, 0, 11, 8, alto >> 8, alto & 0xff, ancho >> 8, ancho & 0xff, 1, 1, 0x11, 0])
+    return Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof, Buffer.from([0xff, 0xd9])])
+  }
+
+  function webp(ancho: number, alto: number): Buffer {
+    const datos = Buffer.alloc(30)
+    datos.write('RIFF', 0, 'latin1')
+    datos.write('WEBPVP8X', 8, 'latin1')
+    datos.writeUIntLE(ancho - 1, 24, 3)
+    datos.writeUIntLE(alto - 1, 27, 3)
+    return datos
+  }
+
+  it('una captura larga de más de 8000 px, en PNG, JPEG, WEBP o GIF', () => {
+    const gif = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x92, 0x04, 0x28, 0x23])
+    for (const [nombre, datos] of [['larga.png', png(1170, 9000)], ['foto.jpg', jpeg(8064, 6048)], ['s.webp', webp(9000, 100)], ['a.gif', gif]] as const) {
+      fallaCon(() => leerArchivo(nombre, datos), /más de 8\.000 píxeles.*partila en varias capturas/)
+    }
+  })
+
+  it('una captura de iPhone común se acepta', () => {
+    assert.equal(leerArchivo('captura.png', png(1290, 2796)).tipo, 'imagen')
+    assert.equal(leerArchivo('foto.jpg', jpeg(4032, 3024)).tipo, 'imagen')
+    assert.equal(leerArchivo('s.webp', webp(8000, 8000)).tipo, 'imagen')
+  })
+
+  it('más de 7,5 MB: en base64 pasa los 10 MB que acepta Claude por imagen', () => {
+    const pesada = Buffer.concat([png(1290, 2796), Buffer.alloc(7_864_320 - 33 + 1)])
+    fallaCon(() => leerArchivo('captura.png', pesada), /pesa más de 7 MB/)
+    assert.equal(leerArchivo('captura.png', pesada.subarray(0, 7_864_320)).tipo, 'imagen')
+  })
+})

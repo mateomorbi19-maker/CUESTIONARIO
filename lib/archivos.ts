@@ -30,7 +30,16 @@ const BYTES_PARA_DETECTAR_TEXTO = 8 * 1024
 const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
+// Lo que Claude acepta por imagen: 10 MB medidos en base64 (unos 7,5 MB del archivo) y 8000 px por
+// lado. Lo que pasa de eso se subía bien y fallaba recién al tocar «Seguir», en cada reintento.
+const LIMITE_BYTES_IMAGEN = Math.floor((10 * 1024 * 1024) / 4) * 3
+const LIMITE_LADO_IMAGEN = 8000
+
 const MENSAJE_VACIO = 'El archivo está vacío. Volvé a guardarlo o exportarlo y subilo de nuevo.'
+const MENSAJE_IMAGEN_PESADA =
+  'La imagen pesa más de 7 MB y así no se puede leer. Mandá una captura de pantalla común, o recortala antes de subirla.'
+const MENSAJE_IMAGEN_GRANDE =
+  'La imagen tiene un lado de más de 8.000 píxeles y así no se puede leer. Si es una captura larga, partila en varias capturas comunes; si es una foto, mandá una captura de pantalla de la foto.'
 const MENSAJE_PESADO =
   'El archivo pesa más de 20 MB. Subí solo la parte que importa o partilo en archivos más chicos.'
 const MENSAJE_HEIC = 'Las fotos HEIC del iPhone no se pueden leer. Mandá una captura de pantalla o exportala como JPG.'
@@ -83,10 +92,10 @@ export function leerArchivo(nombre: string, datos: Buffer): ArchivoLeido {
   const extension = /\.([^./\\]+)$/.exec(nombre)?.[1].toLowerCase() ?? ''
   const inicio = datos.toString('latin1', 0, 12)
 
-  if (datos[0] === 0xff && datos[1] === 0xd8 && datos[2] === 0xff) return binario('imagen', 'image/jpeg')
-  if (inicio.startsWith('\x89PNG')) return binario('imagen', 'image/png')
-  if (inicio.startsWith('GIF8')) return binario('imagen', 'image/gif')
-  if (inicio.startsWith('RIFF') && inicio.slice(8, 12) === 'WEBP') return binario('imagen', 'image/webp')
+  if (datos[0] === 0xff && datos[1] === 0xd8 && datos[2] === 0xff) return imagen(datos, 'image/jpeg', ladosJpeg(datos))
+  if (inicio.startsWith('\x89PNG')) return imagen(datos, 'image/png', ladosPng(datos))
+  if (inicio.startsWith('GIF8')) return imagen(datos, 'image/gif', datos.length >= 10 ? [datos.readUInt16LE(6), datos.readUInt16LE(8)] : null)
+  if (inicio.startsWith('RIFF') && inicio.slice(8, 12) === 'WEBP') return imagen(datos, 'image/webp', ladosWebp(datos))
   // La norma de PDF permite basura antes del encabezado; solo se busca más adentro si dice ser PDF.
   if (inicio.startsWith('%PDF') || (extension === 'pdf' && datos.subarray(0, 1024).includes('%PDF'))) {
     return binario('pdf', 'application/pdf')
@@ -120,6 +129,57 @@ export function leerArchivo(nombre: string, datos: Buffer): ArchivoLeido {
 
 function binario(tipo: 'imagen' | 'pdf', mime: string): ArchivoLeido {
   return { tipo, mime, texto: null }
+}
+
+/** `lados` es [ancho, alto], o null si el encabezado no se pudo leer: ahí decide Claude. */
+function imagen(datos: Buffer, mime: string, lados: [number, number] | null): ArchivoLeido {
+  if (datos.length > LIMITE_BYTES_IMAGEN) throw new ErrorArchivo(MENSAJE_IMAGEN_PESADA)
+  if (lados && Math.max(...lados) > LIMITE_LADO_IMAGEN) throw new ErrorArchivo(MENSAJE_IMAGEN_GRANDE)
+  return binario('imagen', mime)
+}
+
+function ladosPng(datos: Buffer): [number, number] | null {
+  if (datos.length < 24 || datos.toString('latin1', 12, 16) !== 'IHDR') return null
+  return [datos.readUInt32BE(16), datos.readUInt32BE(20)]
+}
+
+function ladosWebp(datos: Buffer): [number, number] | null {
+  const formato = datos.toString('latin1', 12, 16)
+  if (formato === 'VP8X' && datos.length >= 30) return [datos.readUIntLE(24, 3) + 1, datos.readUIntLE(27, 3) + 1]
+  // Sin pérdida: 14 bits por lado, empaquetados después de la firma 0x2f.
+  if (formato === 'VP8L' && datos.length >= 25 && datos[20] === 0x2f) {
+    const bits = datos.readUInt32LE(21)
+    return [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1]
+  }
+  // Con pérdida: después del código de inicio 9d 01 2a, 14 bits por lado.
+  if (formato === 'VP8 ' && datos.length >= 30 && datos[23] === 0x9d && datos[24] === 0x01 && datos[25] === 0x2a) {
+    return [datos.readUInt16LE(26) & 0x3fff, datos.readUInt16LE(28) & 0x3fff]
+  }
+  return null
+}
+
+/** El tamaño está en el marcador SOF, después de los metadatos: se saltan segmento por segmento. */
+function ladosJpeg(datos: Buffer): [number, number] | null {
+  let posicion = 2
+  while (posicion + 9 < datos.length) {
+    if (datos[posicion] !== 0xff) return null
+    const marcador = datos[posicion + 1]
+    // Relleno entre segmentos y marcadores sueltos, que no traen largo.
+    if (marcador === 0xff) {
+      posicion++
+      continue
+    }
+    if (marcador === 0x01 || (marcador >= 0xd0 && marcador <= 0xd9)) {
+      posicion += 2
+      continue
+    }
+    // C4 (tablas Huffman), C8 y CC no son cuadros aunque caigan en el rango de los SOF.
+    if (marcador >= 0xc0 && marcador <= 0xcf && marcador !== 0xc4 && marcador !== 0xc8 && marcador !== 0xcc) {
+      return [datos.readUInt16BE(posicion + 7), datos.readUInt16BE(posicion + 5)]
+    }
+    posicion += 2 + datos.readUInt16BE(posicion + 2)
+  }
+  return null
 }
 
 function texto(mime: string, contenido: string, mensajeSiEstaVacio: string): ArchivoLeido {

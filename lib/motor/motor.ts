@@ -78,7 +78,9 @@ function seccionEnCurso(estado: EstadoCuestionario): Seccion {
 }
 
 function archivosPublicos(estado: EstadoCuestionario, etapa: ArchivoMaterial['etapa']): ArchivoPublico[] {
-  return estado.material.archivos.filter((a) => a.etapa === etapa).map((a) => ({ id: a.id, nombre: a.nombre, tipo: a.tipo }))
+  return estado.material.archivos
+    .filter((a) => a.etapa === etapa)
+    .map((a) => ({ id: a.id, nombre: a.nombre, tipo: a.tipo, problema: a.problema ?? null }))
 }
 
 function extracto(texto: string, largo = 90): string {
@@ -401,8 +403,15 @@ async function responderTriage(estado: EstadoCuestionario, respuesta: string, de
 
 async function recibirChat(estado: EstadoCuestionario, texto: string, dep: Dependencias): Promise<EstadoCuestionario> {
   const capturas = estado.material.archivos.filter((a) => a.etapa === 'pedido_chat')
-  await transcribirPendientes(capturas, dep)
-  estado.chat = [texto, ...capturas.map((a) => `### ${a.nombre}\n${a.texto ?? ''}`)].filter(Boolean).join('\n\n')
+  // Acá no se frena por una captura que no se leyó: con el texto y las demás alcanza para clasificar.
+  anotarProblemas(estado, await transcribirPendientes(capturas, dep))
+  estado.chat = [texto, ...capturas.filter((a) => a.texto).map((a) => `### ${a.nombre}\n${a.texto}`)].filter(Boolean).join('\n\n')
+  // Si no quedó nada legible es como no tener el chat: la skill lo reconstruye con tres preguntas.
+  if (!estado.chat) {
+    estado.chat = null
+    estado.etapa = 'reconstruccion'
+    return estado
+  }
   return clasificar(estado, dep)
 }
 
@@ -459,24 +468,120 @@ async function generarExamen(estado: EstadoCuestionario, dep: Dependencias): Pro
 
 // ---------------------------------------------------------------- material
 
-async function transcribirPendientes(archivos: ArchivoMaterial[], dep: Dependencias): Promise<void> {
+/** Un archivo que no se pudo leer entero, con el detalle para el reporte. */
+interface ProblemaDeLectura {
+  archivo: ArchivoMaterial
+  detalle: string
+}
+
+/**
+ * Transcribe lo que falta y devuelve los archivos que no se pudieron leer enteros.
+ *
+ * Un archivo que falla siempre (una imagen que la API rechaza, un PDF que no termina de
+ * transcribirse, uno que se perdió del disco) no puede frenar a todos: quedaría trabado en cada
+ * «Reintentar». Se anota y se sigue. Una falla pasajera sí frena, porque reintentar la arregla.
+ */
+async function transcribirPendientes(archivos: ArchivoMaterial[], dep: Dependencias): Promise<ProblemaDeLectura[]> {
   const pendientes = archivos.filter((a) => a.texto === null)
+  const problemas: ProblemaDeLectura[] = []
+  const pasajeras: unknown[] = []
   let siguiente = 0
   // Varias a la vez: un cliente sube diez capturas de un chat y no tiene por qué esperar una por una.
   async function trabajar(): Promise<void> {
-    while (siguiente < pendientes.length) {
+    // Después de una falla pasajera no se arranca otra: se reintenta todo junto y no se gasta de más.
+    while (!pasajeras.length && siguiente < pendientes.length) {
       const archivo = pendientes[siguiente++]
-      const datos = await dep.leerArchivo(archivo)
-      const salida = await pedir<instrucciones.SalidaTranscripcion>(dep, instrucciones.transcribirArchivo(archivo, datos))
-      archivo.texto = salida.texto.trim()
+      try {
+        const datos = await dep.leerArchivo(archivo)
+        const salida = await pedir<instrucciones.SalidaTranscripcion>(dep, instrucciones.transcribirArchivo(archivo, datos))
+        archivo.texto = salida.texto.trim()
+      } catch (err) {
+        const problema = marcarNoLeido(archivo, err)
+        if (problema) problemas.push(problema)
+        else pasajeras.push(err)
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(TRANSCRIPCIONES_EN_PARALELO, pendientes.length) }, trabajar))
+  if (pasajeras.length) throw pasajeras[0]
+  return problemas
+}
+
+/** Si la falla es del archivo y no pasajera, lo deja marcado y dice qué pasó. Si no, null. */
+function marcarNoLeido(archivo: ArchivoMaterial, err: unknown): ProblemaDeLectura | null {
+  if ((err as { code?: string } | null)?.code === 'ENOENT') {
+    archivo.texto = ''
+    archivo.problema = textos.PROBLEMA_PERDIDO
+    return { archivo, detalle: 'no estaba en el disco del servidor, se perdió después de subirlo' }
+  }
+  if (!(err instanceof ErrorIa)) return null
+
+  if (err.causa === 'cortada' && archivo.tipo === 'pdf') {
+    // Un documento largo de verdad: lo leído hasta el techo sirve. En una imagen no pasa nunca
+    // salvo que Claude se quede repitiendo, y eso no se guarda.
+    const leido = textoDeJsonCortado(err.parcial ?? '').trim()
+    if (leido) {
+      archivo.texto = `${leido}\n\n${textos.MARCA_TRANSCRIPCION_CORTADA}`
+      archivo.problema = textos.PROBLEMA_LARGO
+      return { archivo, detalle: `es tan largo que la transcripción llegó al techo de tokens: quedaron los primeros ${leido.length} caracteres y el resto no se leyó` }
+    }
+  }
+  const detalles: Partial<Record<ErrorIa['causa'], string>> = {
+    cortada: 'la transcripción llegó al techo de tokens sin terminar',
+    invalido: `Claude no acepta el archivo (${err.message})`,
+    rechazo: 'Claude no quiso transcribirlo',
+    formato: err.message,
+  }
+  const detalle = detalles[err.causa]
+  if (!detalle) return null
+  archivo.texto = ''
+  archivo.problema = textos.PROBLEMA_ILEGIBLE
+  return { archivo, detalle }
+}
+
+/**
+ * El valor de "texto" de un JSON que se cortó a mitad de camino: `{"texto": "lo que alcanzó`.
+ * Un escape cortado al final no se puede leer y se descarta.
+ */
+export function textoDeJsonCortado(crudo: string): string {
+  const inicio = /^\s*\{\s*"texto"\s*:\s*"/.exec(crudo)
+  if (!inicio) return ''
+  const resto = crudo.slice(inicio[0].length)
+  let fin = resto.length
+  for (let i = 0; i < resto.length; i++) {
+    if (resto[i] === '"') {
+      fin = i
+      break
+    }
+    if (resto[i] !== '\\') continue
+    const largo = resto[i + 1] === 'u' ? 6 : 2
+    if (i + largo > resto.length) {
+      fin = i
+      break
+    }
+    i += largo - 1
+  }
+  try {
+    // Un emoji partido en el corte deja media pareja: Postgres no la acepta dentro de un JSON.
+    return (JSON.parse(`"${resto.slice(0, fin)}"`) as string).replace(/[\ud800-\udbff]$/, '')
+  } catch {
+    return ''
+  }
+}
+
+function anotarProblemas(estado: EstadoCuestionario, problemas: ProblemaDeLectura[]): void {
+  for (const { archivo, detalle } of problemas) estado.avisos.push(`Archivo «${archivo.nombre}»: ${detalle}.`)
 }
 
 async function terminarMaterial(estado: EstadoCuestionario, dep: Dependencias): Promise<EstadoCuestionario> {
   const subidos = estado.material.archivos.filter((a) => a.etapa === 'material')
-  await transcribirPendientes(subidos, dep)
+  const problemas = await transcribirPendientes(subidos, dep)
+  anotarProblemas(estado, problemas)
+  // Vuelve a la lista con la nota en cada archivo que no se leyó entero: lo cambia o sigue igual.
+  // Lo que sí se leyó queda guardado y al tocar «Seguir» no se vuelve a transcribir.
+  if (problemas.length) return estado
+  // Un archivo que no se pudo leer cuenta como subido: decirle «todavía no subiste nada» al lado
+  // de su archivo lo confunde. Lo que falta lo dice la revisión del material.
   const hayMaterial = subidos.length > 0 || estado.material.textos.length > 0
 
   // La skill avisa lo que falta una sola vez: la segunda vez que toca seguir, se sigue con lo que haya.
@@ -510,15 +615,25 @@ async function proponer(estado: EstadoCuestionario, dep: Dependencias): Promise<
   const seccion = seccionEnCurso(estado)
   const salida = await pedir<instrucciones.SalidaPropuestas>(dep, instrucciones.proponerRespuestas(estado, seccion))
   const material = normalizarLiteral(instrucciones.textoDelMaterial(estado))
+  // Sonnet a veces devuelve una misma pregunta en varias propuestas, un pedazo en cada una: se
+  // juntan en orden. Quedarse con la última le mostraba al dueño uno solo de once colores.
+  const juntas = new Map<string, { fragmentos: string[]; fuentes: string[] }>()
   for (const propuesta of salida.propuestas) {
     const fragmentos = fragmentosDePropuesta(propuesta.texto)
     const existe = seccion.preguntas.some((p) => p.id === propuesta.id)
     // Solo se propone lo que está escrito en el material: si el modelo parafraseó o pegó
     // pedazos en una oración, el dueño estaría confirmando algo que nunca escribió.
     if (!existe || !fragmentos.length || fragmentos.some((f) => !material.includes(normalizarLiteral(f)))) continue
-    estado.entrevista.propuestas[propuesta.id] = {
+    const junta = juntas.get(propuesta.id) ?? { fragmentos: [], fuentes: [] }
+    for (const fragmento of fragmentos) if (!junta.fragmentos.includes(fragmento)) junta.fragmentos.push(fragmento)
+    const fuente = propuesta.fuente.trim()
+    if (fuente && !junta.fuentes.includes(fuente)) junta.fuentes.push(fuente)
+    juntas.set(propuesta.id, junta)
+  }
+  for (const [id, { fragmentos, fuentes }] of juntas) {
+    estado.entrevista.propuestas[id] = {
       texto: fragmentos.join(`\n\n${SEPARADOR_FRAGMENTOS}\n\n`),
-      fuente: propuesta.fuente.trim() || 'lo que subiste',
+      fuente: fuentes.join(', ') || 'lo que subiste',
     }
   }
 }

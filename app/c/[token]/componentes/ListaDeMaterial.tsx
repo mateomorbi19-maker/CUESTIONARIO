@@ -55,6 +55,7 @@ export function ListaDeMaterial({ archivos, textos = [], bloqueado = false, onQu
           <div className="archivo-cuerpo">
             <span className="archivo-nombre">{archivo.nombre}</span>
             <span className="archivo-detalle">{NOMBRE_TIPO[archivo.tipo]}</span>
+            {archivo.problema && <span className="archivo-problema">{archivo.problema}</span>}
             {errores[archivo.id] && (
               <span className="archivo-error" role="alert">
                 {errores[archivo.id]}

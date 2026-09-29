@@ -61,7 +61,13 @@ export interface ClienteIa {
 export class ErrorIa extends Error {
   constructor(
     message: string,
-    readonly causa: 'sin_clave' | 'rechazo' | 'cortada' | 'formato' | 'api' | 'tope',
+    /**
+     * 'invalido': la API no acepta el pedido tal como va (una imagen de más de 10 MB, un PDF
+     * dañado). Repetirlo da lo mismo. 'api': falla pasajera o de red; reintentar puede andar.
+     */
+    readonly causa: 'sin_clave' | 'rechazo' | 'cortada' | 'formato' | 'api' | 'invalido' | 'tope',
+    /** Con 'cortada': lo que alcanzó a escribir antes del techo, tal cual llegó. */
+    readonly parcial: string | null = null,
   ) {
     super(message)
     this.name = 'ErrorIa'
@@ -128,7 +134,12 @@ export function clienteClaude(
         if (err instanceof Anthropic.AuthenticationError) {
           throw new ErrorIa('Anthropic rechazó la clave: ANTHROPIC_API_KEY es inválida o fue revocada.', 'sin_clave')
         }
-        throw new ErrorIa(`Falló la llamada a Claude en el paso ${pedido.paso}: ${detalle}`, 'api')
+        // Un 413, o un 400/422 que señala el contenido (la imagen, el PDF), es del archivo: va a
+        // fallar igual siempre. Otros 400 son de la cuenta (saldo, límite de gasto) o de la
+        // configuración: esos se reintentan cuando se arreglan y no pueden marcar archivos.
+        const estado = err instanceof Anthropic.APIError ? (err.status ?? 0) : 0
+        const invalido = estado === 413 || ([400, 422].includes(estado) && /content|image|pdf|document|too long/i.test(detalle))
+        throw new ErrorIa(`Falló la llamada a Claude en el paso ${pedido.paso}: ${detalle}`, invalido ? 'invalido' : 'api')
       }
 
       const registro: RegistroLlamada = {
@@ -149,18 +160,18 @@ export function clienteClaude(
         await registrar({ ...registro, error: 'rechazo' })
         throw new ErrorIa(`Claude no quiso responder el paso ${pedido.paso}.`, 'rechazo')
       }
+      const texto = respuesta.content
+        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
       if (respuesta.stop_reason === 'max_tokens') {
         await registrar({ ...registro, error: 'cortada por max_tokens' })
         throw new ErrorIa(
           `La respuesta del paso ${pedido.paso} se cortó al llegar a ${pedido.maxTokens} tokens. Hay que subir el techo de ese paso.`,
           'cortada',
+          texto,
         )
       }
-
-      const texto = respuesta.content
-        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
-        .map((b) => b.text)
-        .join('')
       try {
         const datos = JSON.parse(texto) as T
         await registrar(registro)

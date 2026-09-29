@@ -21,6 +21,7 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
   const [subiendo, setSubiendo] = useState(false)
   const bloqueado = ocupado || subiendo
   const cantidad = pantalla.archivos.length + pantalla.textos.length
+  const conProblema = pantalla.archivos.some((a) => a.problema)
 
   // El error de quitar va junto a la lista: la pantalla es larga y abajo de todo no se vería.
   const errorLista = errorDe('quitar')
@@ -33,6 +34,9 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
       </h1>
 
       {pantalla.aviso && <Aviso texto={pantalla.aviso} />}
+      {conProblema && (
+        <Aviso texto="No pudimos leer entero todo lo que subiste: fijate la nota en cada archivo. Podés quitarlo, subir otra versión o **seguir igual**." />
+      )}
 
       <ul className="lista-material">
         {pantalla.items.map((item, i) => (
@@ -48,7 +52,7 @@ export function Material({ pantalla }: { pantalla: PantallaDe<'material'> }) {
         <h2 className="subtitulo">Subir archivos</h2>
         <SubidaDeArchivos
           textoBoton="Elegir archivos"
-          ayuda="Capturas de los chats, el chat que exporta WhatsApp, fotos, PDF, Word o Excel. Hasta 20 MB cada uno."
+          ayuda="Capturas de los chats, el chat que exporta WhatsApp, fotos, PDF, Word o Excel. Hasta 20 MB cada uno (las imágenes, hasta 7 MB)."
           arrastrable
           onSubiendo={setSubiendo}
         />

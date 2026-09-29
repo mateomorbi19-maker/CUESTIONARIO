@@ -61,11 +61,17 @@ Solo en las pantallas `pedido_chat` y `material`, y no mientras se procesa.
 | Estado | Cuerpo |
 |---|---|
 | 200 | `EstadoPublico` con los archivos nuevos en la pantalla |
-| 400 | Tipo no permitido (audio, video, HEIC...) o archivo de más de 20 MB |
+| 400 | Tipo no permitido (audio, video, HEIC...), archivo de más de 20 MB, o imagen que Claude no acepta (más de 7,5 MB o un lado de más de 8000 px) |
 | 409 | La pantalla no acepta archivos o se está procesando |
 
 Se aceptan imágenes (JPG, PNG, WEBP, GIF), PDF, Word (.docx), Excel (.xlsx), texto (.txt, .csv,
 .md) y el .zip que exporta WhatsApp.
+
+Las imágenes y los PDF se leen con Claude al seguir. Si uno no se puede leer entero (Claude lo
+rechaza, es un PDF tan largo que la transcripción llega al techo, o se perdió del disco), no frena
+el paso: el archivo vuelve en la pantalla con `problema`, el texto que explica qué pasó, y el
+detalle queda en los avisos del reporte. En el material, la pantalla vuelve a la lista para que
+lo cambie o siga igual; en el pedido de chat se sigue con lo que se pudo leer.
 
 ## Quitar un archivo
 

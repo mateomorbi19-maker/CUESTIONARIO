@@ -84,6 +84,18 @@ export const SIN_CHAT = 'No guardo los chats'
 export const AVISO_SIN_MATERIAL =
   'Todavía no subiste nada. Con conversaciones reales la entrevista sale mucho mejor, porque cada una muestra algo distinto de cómo vendés. Si no las tenés, podés seguir igual.'
 
+/** Junto a un archivo que Claude no pudo leer: una imagen rechazada o que no terminó de transcribirse. */
+export const PROBLEMA_ILEGIBLE = 'No pudimos leer este archivo. Si tiene algo importante, mandalo de nuevo como captura de pantalla.'
+
+/** Junto a un archivo que se perdió en el servidor después de subirlo. */
+export const PROBLEMA_PERDIDO = 'Este archivo no se guardó bien. Si tiene algo importante, subilo de nuevo.'
+
+/** Junto a un PDF tan largo que solo se leyó el principio. */
+export const PROBLEMA_LARGO = 'Es muy largo: leímos solo la primera parte. Si lo importante está más adelante, subí esa parte sola.'
+
+/** Al final de lo que se alcanzó a leer de un PDF largo, para que la entrevista sepa que falta el resto. */
+export const MARCA_TRANSCRIPCION_CORTADA = '[Acá se cortó la lectura: el archivo es demasiado largo y lo que sigue no se leyó.]'
+
 export function avisoFaltantes(faltan: string[]): string {
   return `Te falta: ${faltan.join('; ')}. Cada conversación muestra algo distinto de cómo vendés, así que si las tenés, subilas. Si no, podés seguir igual.`
 }

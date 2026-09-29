@@ -156,8 +156,8 @@ export const VARIANTES: Variante[] = [
         texto: PEDIDO_CHAT,
         sinChat: 'No guardo los chats',
         archivos: [
-          { id: 'c1', nombre: 'Captura de pantalla 2026-09-02 a las 18.41.12.png', tipo: 'imagen' },
-          { id: 'c2', nombre: 'Captura de pantalla 2026-09-02 a las 18.41.40.png', tipo: 'imagen' },
+          { id: 'c1', nombre: 'Captura de pantalla 2026-09-02 a las 18.41.12.png', tipo: 'imagen', problema: null },
+          { id: 'c2', nombre: 'Captura de pantalla 2026-09-02 a las 18.41.40.png', tipo: 'imagen', problema: null },
         ],
       },
       10,
@@ -218,9 +218,9 @@ export const VARIANTES: Variante[] = [
         tipo: 'material',
         items: ITEMS_MATERIAL,
         archivos: [
-          { id: 'm1', nombre: 'Chat con Marcela - monstera.png', tipo: 'imagen' },
-          { id: 'm2', nombre: 'Lista de precios septiembre.pdf', tipo: 'pdf' },
-          { id: 'm3', nombre: 'Chat de WhatsApp con Jorge Ramírez del vivero de Pilar.zip', tipo: 'texto' },
+          { id: 'm1', nombre: 'Chat con Marcela - monstera.png', tipo: 'imagen', problema: null },
+          { id: 'm2', nombre: 'Lista de precios septiembre.pdf', tipo: 'pdf', problema: textos.PROBLEMA_LARGO },
+          { id: 'm3', nombre: 'Chat de WhatsApp con Jorge Ramírez del vivero de Pilar.zip', tipo: 'texto', problema: null },
         ],
         textos: [
           {
