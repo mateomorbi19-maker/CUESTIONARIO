@@ -876,6 +876,314 @@ p.aviso {
   color: var(--tinta-suave);
 }
 
+/* ---------- Subir: por dónde entran los archivos ---------- */
+
+/* En el celular, un botón debajo del otro y a todo el ancho: son tres caminos distintos y cada
+   uno tiene que poder tocarse sin apuntar. */
+.subida-botones {
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.subida-botones .boton {
+  width: 100%;
+}
+
+@media (min-width: 36rem) {
+  .subida-botones {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .subida-botones .boton {
+    width: auto;
+  }
+}
+
+.subida-ayuda {
+  display: grid;
+  gap: 0.2rem;
+}
+
+/* Lo que solo vale con el celular en la mano (no bloquearlo mientras sube). */
+@media (hover: hover) and (pointer: fine) {
+  .solo-tactil {
+    display: none;
+  }
+}
+
+.ayuda-plegable {
+  font-size: 0.9375rem;
+}
+
+.ayuda-plegable summary {
+  padding: 0.6rem 0;
+  color: var(--tinta-suave);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ayuda-plegable summary:hover,
+.ayuda-plegable[open] summary {
+  color: var(--tinta);
+}
+
+.ayuda-pasos {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  background: var(--campo);
+  line-height: 1.5;
+}
+
+.ayuda-pasos dt {
+  font-weight: 600;
+}
+
+.ayuda-pasos dd {
+  margin: 0;
+  color: var(--tinta-suave);
+}
+
+/* «Armar una conversación»: el mismo borde de la propuesta, que también pide una respuesta. */
+.conversacion-nueva {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem 1.05rem 1.1rem;
+  border: 1px solid var(--linea);
+  border-left: 4px solid var(--acento);
+  border-radius: var(--radio);
+  background: var(--campo);
+}
+
+/* ---------- Subir: lo que está en camino ---------- */
+
+.subidas {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.subidas-lista {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.subidas-consejo {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--aviso-tinta);
+}
+
+.subida-lote {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.35rem 0.9rem 0.85rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  background: var(--campo);
+}
+
+.subida-lote-fila {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+}
+
+/* Los nombres de conversación y de archivo no tienen espacios donde cortar: se cortan donde haga
+   falta antes que ensanchar la página. */
+.subida-lote-texto {
+  min-width: 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.subida-lote-accion {
+  flex: none;
+  padding-inline: 0.25rem;
+  font-size: 0.9375rem;
+}
+
+.subida-lote .progreso-relleno {
+  transition-duration: 0.3s;
+}
+
+.subidas-aviso {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 0.75rem;
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
+
+.subidas-aviso-textos {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.subidas-aviso-cerrar {
+  min-height: 1.6rem;
+  padding: 0 0.15rem;
+  color: inherit;
+  font-size: 0.9375rem;
+}
+
+/* Un archivo que no subió: el error necesita el ancho entero, así que los botones van abajo. */
+.archivo-con-acciones {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  padding: 0.7rem 0.9rem 0.2rem;
+}
+
+.archivo-con-acciones .archivo-marca-error {
+  margin-top: 0.05rem;
+}
+
+.archivo-con-acciones .archivo-nombre {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.archivo-acciones {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.15rem;
+}
+
+.archivo-acciones .archivo-accion {
+  padding-inline: 0;
+}
+
+/* ---------- Conversaciones subidas ---------- */
+
+.conversaciones {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.conversacion {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.95rem 1rem 0.55rem;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio);
+  background: var(--campo);
+}
+
+.conversacion-cabeza {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem;
+}
+
+.conversacion-icono {
+  margin-top: 0.15rem;
+  color: var(--acento);
+}
+
+.conversacion-titulos {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+/* El nombre viene de una carpeta o de un .zip: puede ser largo y sin espacios. */
+.conversacion-nombre {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.conversacion-resumen {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--tinta-suave);
+}
+
+.conversacion-nota {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--tinta-suave);
+  overflow-wrap: anywhere;
+}
+
+.conversacion-nota .girando {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-top: 0.15rem;
+}
+
+/* No es un error de ella: se subió bien, pero hay algo para mirar. */
+.conversacion-nota-problema {
+  color: var(--aviso-tinta);
+  font-weight: 500;
+}
+
+.conversacion-acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.15rem;
+}
+
+.conversacion-acciones .boton-texto {
+  padding-inline: 0;
+  font-size: 0.9375rem;
+}
+
+/* Cambiar el nombre y confirmar que se quita: reemplazan a los botones, en el mismo lugar. */
+.conversacion-formulario {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem 0 0.5rem;
+  border-top: 1px solid var(--linea);
+}
+
+.conversacion .lista-archivos {
+  padding-bottom: 0.45rem;
+}
+
+.conversacion .archivo {
+  row-gap: 0;
+  background: var(--papel);
+}
+
+.conversacion .archivo-accion {
+  padding-inline: 0.4rem;
+}
+
+/* La nota de un archivo, debajo de su fila y a todo el ancho. */
+.archivo-nota {
+  grid-column: 2 / -1;
+  margin: 0 0 0.5rem;
+  padding-right: 0.4rem;
+}
+
+/* Los adjuntos de un chat se llaman casi igual («00000007-AUDIO-2026-…»): cortados con puntos
+   suspensivos no se distinguen, así que acá el nombre baja de renglón. */
+.conversacion .archivo-nombre {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Espera ---------- */
 
 .espera {

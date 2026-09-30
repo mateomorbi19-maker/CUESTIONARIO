@@ -42,23 +42,40 @@ export interface Clasificacion {
   mensaje: string
 }
 
-export type TipoMaterial = 'imagen' | 'pdf' | 'texto'
+/** 'otro': se guarda y se muestra, pero no se puede leer (un formato desconocido, un Word viejo). */
+export type TipoMaterial = 'imagen' | 'pdf' | 'texto' | 'audio' | 'video' | 'otro'
 
 export interface ArchivoMaterial {
+  /** uuid. Vive en <DIR_DATOS>/archivos/<cuestionarioId>/<id>: un nombre nunca es una ruta. */
   id: string
+  /** Solo el nombre, sin carpetas, saneado con sanearNombre. Es el que nombra el chat: «<adjunto: NOMBRE>». */
   nombre: string
   mime: string
   tipo: TipoMaterial
   bytes: number
   /**
-   * Texto extraído al subirlo o transcripto por Claude. null mientras falta transcribirlo; vacío
-   * si no se pudo leer, para no volver a intentarlo en cada «Seguir».
+   * null: falta leerlo al seguir. '': no se pudo leer o no se puede (va con problema), o no tiene
+   * nada, y no se vuelve a intentar en cada «Seguir». string: lo leído. En un audio o un video es
+   * la transcripción automática, que nunca cuenta como texto escrito por el dueño.
    */
   texto: string | null
   /** Los que se suben en `pedido_chat` son el chat real del triage. */
   etapa: 'pedido_chat' | 'material'
   /** Si no se pudo leer entero: qué pasó, dicho para el dueño. */
   problema?: string
+  /** Conversación: la carpeta, el .zip o la que armó a mano. Ausente o null: archivo suelto. Los estados viejos no lo traen. */
+  grupo?: string | null
+  /** sha256 en hex de los bytes. Sirve para no guardar dos veces lo mismo ni escuchar dos veces el mismo audio. */
+  hash?: string
+  /** Segundos, en audios y videos ya procesados. */
+  duracion?: number
+  /** Transcripción automática con señales de error: repeticiones o casi sin voz. */
+  dudosa?: boolean
+  /**
+   * Lo que Claude describe de lo que se ve (una foto sin texto, los cuadros de un video). No lo
+   * escribió el dueño: al armar el material va entre ⟪ y ⟫, igual que una transcripción.
+   */
+  descripcion?: string
 }
 
 export interface TextoMaterial {
@@ -137,6 +154,8 @@ export interface EstadoCuestionario {
     textos: TextoMaterial[]
     /** Lo que falta juntar, dicho una sola vez. La skill no insiste más. */
     avisoFaltantes: string | null
+    /** Por qué volvió a la lista al tocar «Listo, seguir». Lo pone y lo limpia el motor. Los estados viejos no lo traen. */
+    avisoLectura?: string | null
   }
   entrevista: {
     /** Sección en curso: de 1 a 9. */
@@ -163,8 +182,20 @@ export interface ArchivoPublico {
   id: string
   nombre: string
   tipo: TipoMaterial
-  /** No se pudo leer entero: se muestra junto al archivo para que lo cambie o siga igual. */
+  /**
+   * Lo calcula el servidor. 'sin_leer': se lee al tocar «Listo, seguir». 'en_proceso': audio o
+   * video que todavía se está escuchando. 'con_problema': no se pudo leer entero.
+   */
+  estado: 'listo' | 'sin_leer' | 'en_proceso' | 'con_problema'
+  /** Se muestra junto al archivo para que lo cambie o siga igual. null si el estado es 'listo', 'sin_leer' o 'en_proceso'. */
   problema: string | null
+  /** La conversación, ya resuelta: un suelto que un solo chat nombra figura en la de ese chat. null: suelto. */
+  grupo: string | null
+  /** Es el chat exportado de su conversación (el .txt de WhatsApp), no un adjunto. */
+  esChat: boolean
+  /** Segundos, en audios y videos ya escuchados. null si todavía no. */
+  duracion: number | null
+  bytes: number
 }
 
 export interface TextoPublico {
@@ -194,6 +225,8 @@ export type Pantalla =
       textos: TextoPublico[]
       /** Lo que falta juntar, si se detectó. Con aviso, el botón de seguir dice que no tiene más. */
       aviso: string | null
+      /** Por qué volvió a la lista: algo no se pudo leer, o todavía se está escuchando. */
+      avisoLectura: string | null
     }
   | {
       tipo: 'entrevista'
@@ -206,6 +239,42 @@ export type Pantalla =
     }
   | { tipo: 'pregunta_final'; numero: number; total: number; texto: string }
   | { tipo: 'gracias'; texto: string }
+
+// ---- Motor <-> multimedia. Solo tipos: el motor no toca ffmpeg ni el transcriptor. ----
+
+/** El audio de un audio o de un video, pasado a texto por Whisper en el servidor. */
+export interface Transcripcion {
+  texto: string
+  segundos: number
+  /** No hay pista de audio o no se escucha a nadie: no se transcribe, porque Whisper inventa texto con el silencio. */
+  sinVoz: boolean
+  /** Con señales de error: frases repetidas en bucle, o casi sin palabras para lo que dura. */
+  dudosa: boolean
+  /** Era más largo que lo que se transcribe y quedó solo el principio. */
+  recortada: boolean
+}
+
+export interface Fotogramas {
+  /** JPEG de hasta 1024 px, parejos a lo largo del video. */
+  cuadros: Buffer[]
+  segundos: number
+  tieneVideo: boolean
+  tieneAudio: boolean
+}
+
+export type MimeImagenClaude = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+
+export interface ImagenParaClaude {
+  datos: Buffer
+  mime: MimeImagenClaude
+}
+
+/** Dónde se mandó un adjunto: para que Claude lo lea con contexto. */
+export interface ContextoAdjunto {
+  conversacion: string | null
+  /** La línea del chat que lo nombra y las dos anteriores. */
+  lineas: string
+}
 
 /** Lo que manda la pantalla. */
 export type Entrada =

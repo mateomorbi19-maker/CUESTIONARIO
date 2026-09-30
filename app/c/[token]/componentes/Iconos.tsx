@@ -78,3 +78,49 @@ export function IconoTexto(props: PropsIcono) {
     </Icono>
   )
 }
+
+export function IconoAudio(props: PropsIcono) {
+  return (
+    <Icono {...props}>
+      <rect x="9" y="3.5" width="6" height="10.5" rx="3" />
+      <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0" />
+      <path d="M12 18v2.5" />
+    </Icono>
+  )
+}
+
+export function IconoVideo(props: PropsIcono) {
+  return (
+    <Icono {...props}>
+      <rect x="3.5" y="5.5" width="17" height="13" rx="2" />
+      <path d="M10.5 9.5v5l4-2.5z" />
+    </Icono>
+  )
+}
+
+export function IconoCarpeta(props: PropsIcono) {
+  return (
+    <Icono {...props}>
+      <path d="M3.5 7.5a2 2 0 0 1 2-2h3.6l2 2.2h7.4a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />
+    </Icono>
+  )
+}
+
+/** Un archivo que no se sabe leer: la misma hoja del documento, sin renglones. */
+export function IconoArchivo(props: PropsIcono) {
+  return (
+    <Icono {...props}>
+      <path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3.5V8h4.5" />
+    </Icono>
+  )
+}
+
+export function IconoChat(props: PropsIcono) {
+  return (
+    <Icono {...props}>
+      <path d="M5.5 4.5h13a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H11l-4.5 3.5v-3.5h-1a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z" />
+      <path d="M8 9.5h8M8 12.5h5" />
+    </Icono>
+  )
+}

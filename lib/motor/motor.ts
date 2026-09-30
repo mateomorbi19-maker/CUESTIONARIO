@@ -4,6 +4,7 @@ import { armarExamen, examenAMarkdown, SECCIONES_TEXTO_LITERAL, validarExamen, t
 import type { NombreSkill } from '../skills'
 import * as instrucciones from './instrucciones'
 import { citasQueNoAparecen, fragmentosDePropuesta, normalizarLiteral, SEPARADOR_FRAGMENTOS } from './literal'
+import { esChat, grupoEfectivo, indiceDeMaterial, recorteDelMaterial, textoDeArchivos, tieneMarcadorDeLaApp } from './material'
 import { armarReporteCierre } from './reporte'
 import * as textos from './textos'
 import type {
@@ -12,8 +13,11 @@ import type {
   Clasificacion,
   Entrada,
   EstadoCuestionario,
+  Fotogramas,
+  ImagenParaClaude,
   Pantalla,
   RespuestaEntrevista,
+  Transcripcion,
 } from './tipos'
 
 /**
@@ -22,14 +26,51 @@ import type {
  * puede probar entero con una IA falsa.
  */
 
+/**
+ * Falla de ffmpeg o del transcriptor con un archivo. Nunca es pasajera para el motor: el archivo
+ * queda con su nota y se sigue. Si frenara, un audio que falla siempre dejaría el material
+ * trabado en cada «Reintentar».
+ */
+export class ErrorMultimedia extends Error {
+  constructor(
+    message: string,
+    /**
+     * 'sin_herramienta': falta ffmpeg o el transcriptor, o se cayó (no es culpa del archivo).
+     * 'ilegible': el archivo no se pudo decodificar. 'tiempo': se pasó del tope.
+     */
+    readonly causa: 'sin_herramienta' | 'ilegible' | 'tiempo',
+  ) {
+    super(message)
+    this.name = 'ErrorMultimedia'
+  }
+}
+
 export interface Dependencias {
   ia: ClienteIa
   /** El texto de una skill. En producción sale de skills/; en las pruebas se inyecta. */
   skill: (nombre: NombreSkill) => Promise<string>
-  /** El contenido de un archivo subido, para transcribirlo. */
-  leerArchivo: (archivo: ArchivoMaterial) => Promise<Buffer>
   /** La plantilla de CLAUDE.md del starter kit. */
   plantillaClaude: () => Promise<string>
+  /** El contenido de un archivo subido, para transcribirlo. */
+  leerArchivo: (archivo: ArchivoMaterial) => Promise<Buffer>
+  /** La original si ya sirve. Si no (HEIC, BMP, TIFF, AVIF, más de ~7,5 MB o de 8000 px), JPEG de 1568 px. Tira ErrorMultimedia. */
+  imagenParaClaude: (archivo: ArchivoMaterial) => Promise<ImagenParaClaude>
+  /** Whisper local del audio de un audio o video. Sin pista de audio: sinVoz true. Tira ErrorMultimedia. */
+  transcribirAudio: (archivo: ArchivoMaterial) => Promise<Transcripcion>
+  /** Fotogramas parejos en JPEG de hasta 1024 px. Sin pista de video: cuadros [] y tieneVideo false. Tira ErrorMultimedia. */
+  fotogramasDeVideo: (archivo: ArchivoMaterial) => Promise<Fotogramas>
+  /**
+   * Cuánto se espera, en total, a todo lo que se lee al seguir (Claude y Whisper) antes de volver
+   * a la lista. Por defecto PLAZO_LECTURA_MS. Las pruebas lo achican.
+   */
+  plazoMultimediaMs?: number
+  /**
+   * Dónde guardar la descripción de un video, por hash: si el audio no llega a tiempo, la próxima
+   * vez no se le vuelve a pagar a Claude por mirar los mismos cuadros. Opcional: sin esto se
+   * describe de nuevo.
+   */
+  descripcionGuardada?: (archivo: ArchivoMaterial) => Promise<string | null>
+  guardarDescripcion?: (archivo: ArchivoMaterial, descripcion: string) => Promise<void>
 }
 
 /** La pantalla mandó algo que no corresponde a la etapa en la que está el cuestionario. */
@@ -44,7 +85,15 @@ export class ErrorEntrada extends Error {
 export const INTENTOS_EXAMEN = 3
 /** Más preguntas al final cansan a quien ya contestó una hora: se priorizan las que más le sirven al agente. */
 export const MAXIMO_PREGUNTAS_FINALES = 8
-const TRANSCRIPCIONES_EN_PARALELO = 4
+const LECTURAS_CON_CLAUDE_EN_PARALELO = 4
+// El transcriptor escucha de a uno en todo el servidor; con dos pedidos a la vez, el segundo ya
+// tiene su audio decodificado cuando termina el primero.
+const ESCUCHAS_EN_PARALELO = 2
+/**
+ * Cuánto se espera a todo lo que se lee al seguir, si `Dependencias` no dice otra cosa. El mismo
+ * valor que MINUTOS_PLAZO_LECTURA de lib/cuestionarios.ts, que es el que usa la app.
+ */
+export const PLAZO_LECTURA_MS = 7 * 60_000
 
 export function estadoInicial(negocio: string): EstadoCuestionario {
   return {
@@ -58,7 +107,7 @@ export function estadoInicial(negocio: string): EstadoCuestionario {
     procesoElegido: null,
     examen: null,
     pendientesExamen: [],
-    material: { archivos: [], textos: [], avisoFaltantes: null },
+    material: { archivos: [], textos: [], avisoFaltantes: null, avisoLectura: null },
     entrevista: { seccion: 1, indice: 0, repregunta: null, respuestas: {}, propuestas: {}, brief: {} },
     cierre: null,
     preguntasFinales: [],
@@ -77,10 +126,40 @@ function seccionEnCurso(estado: EstadoCuestionario): Seccion {
   return seccion
 }
 
+function estadoDeArchivo(archivo: ArchivoMaterial): ArchivoPublico['estado'] {
+  if (archivo.texto === null) return archivo.problema === textos.PROBLEMA_EN_PROCESO ? 'en_proceso' : 'sin_leer'
+  return archivo.problema ? 'con_problema' : 'listo'
+}
+
 function archivosPublicos(estado: EstadoCuestionario, etapa: ArchivoMaterial['etapa']): ArchivoPublico[] {
-  return estado.material.archivos
-    .filter((a) => a.etapa === etapa)
-    .map((a) => ({ id: a.id, nombre: a.nombre, tipo: a.tipo, problema: a.problema ?? null }))
+  const deLaEtapa = estado.material.archivos.filter((a) => a.etapa === etapa)
+  // La conversación que ve el dueño es la misma con la que se arma el material para Claude.
+  const grupos = grupoEfectivo(deLaEtapa)
+  return deLaEtapa.map((a) => {
+    const estadoArchivo = estadoDeArchivo(a)
+    return {
+      id: a.id,
+      nombre: a.nombre,
+      tipo: a.tipo,
+      estado: estadoArchivo,
+      // «Todavía lo estamos escuchando» no es un problema: la pantalla lo cuenta aparte.
+      problema: estadoArchivo === 'con_problema' ? (a.problema ?? null) : null,
+      grupo: grupos.get(a.id) ?? null,
+      esChat: esChat(a),
+      duracion: a.duracion ?? null,
+      bytes: a.bytes,
+    }
+  })
+}
+
+/**
+ * Por qué volvió a la lista. Los cuestionarios que ya estaban en el material antes de este campo
+ * no lo traen: ahí el aviso se deduce de los archivos con problema, como hacía la pantalla.
+ */
+function avisoDeLectura(estado: EstadoCuestionario): string | null {
+  const aviso = estado.material.avisoLectura
+  if (aviso !== undefined) return aviso
+  return estado.material.archivos.some((a) => a.etapa === 'material' && a.problema) ? textos.AVISO_LECTURA : null
 }
 
 function extracto(texto: string, largo = 90): string {
@@ -123,6 +202,7 @@ export function pantallaActual(estado: EstadoCuestionario): Pantalla {
         archivos: archivosPublicos(estado, 'material'),
         textos: estado.material.textos.map((t) => ({ id: t.id, extracto: extracto(t.texto) })),
         aviso: estado.material.avisoFaltantes,
+        avisoLectura: avisoDeLectura(estado),
       }
     case 'entrevista': {
       const seccion = seccionEnCurso(estado)
@@ -190,15 +270,16 @@ export function mensajeEspera(estado: EstadoCuestionario, entrada: Entrada): str
     case 'triage':
       return estado.triage.indice >= textos.PREGUNTAS_TRIAGE.length - 1 ? 'Leyendo tus respuestas.' : 'Un momento.'
     case 'pedido_chat':
-      return 'Leyendo la conversación.'
+      return hayMultimediaSinLeer(estado, 'pedido_chat') ? 'Leyendo la conversación y escuchando los audios.' : 'Leyendo la conversación.'
     case 'confirmacion':
       return entrada.tipo === 'confirmar'
         ? 'Estamos armando tu cuestionario a medida. Tarda un par de minutos.'
         : 'Leyendo tu corrección.'
     case 'material':
-      return entrada.tipo === 'terminar_material'
-        ? 'Leyendo lo que subiste. Si son muchas capturas, puede tardar unos minutos.'
-        : 'Guardando.'
+      if (entrada.tipo !== 'terminar_material') return 'Guardando.'
+      return hayMultimediaSinLeer(estado, 'material')
+        ? 'Escuchando los audios y mirando los videos. Puede tardar unos minutos.'
+        : 'Leyendo lo que subiste. Si son muchas capturas, puede tardar unos minutos.'
     case 'entrevista': {
       const secciones = seccionesConPreguntas(estado)
       const seccion = secciones.find((s) => s.numero === estado.entrevista.seccion)
@@ -214,6 +295,10 @@ export function mensajeEspera(estado: EstadoCuestionario, entrada: Entrada): str
     default:
       return 'Un momento.'
   }
+}
+
+function hayMultimediaSinLeer(estado: EstadoCuestionario, etapa: ArchivoMaterial['etapa']): boolean {
+  return estado.material.archivos.some((a) => a.etapa === etapa && a.texto === null && (a.tipo === 'audio' || a.tipo === 'video'))
 }
 
 function vacia(texto: string): boolean {
@@ -402,10 +487,20 @@ async function responderTriage(estado: EstadoCuestionario, respuesta: string, de
 }
 
 async function recibirChat(estado: EstadoCuestionario, texto: string, dep: Dependencias): Promise<EstadoCuestionario> {
-  const capturas = estado.material.archivos.filter((a) => a.etapa === 'pedido_chat')
-  // Acá no se frena por una captura que no se leyó: con el texto y las demás alcanza para clasificar.
-  anotarProblemas(estado, await transcribirPendientes(capturas, dep))
-  estado.chat = [texto, ...capturas.filter((a) => a.texto).map((a) => `### ${a.nombre}\n${a.texto}`)].filter(Boolean).join('\n\n')
+  const subidos = estado.material.archivos.filter((a) => a.etapa === 'pedido_chat')
+  // Acá no se frena por un archivo que no se leyó: con el texto y los demás alcanza para clasificar.
+  const lectura = await leerPendientes(subidos, estado.material.archivos, dep)
+  anotarLectura(estado, lectura)
+  for (const archivo of lectura.enCurso) {
+    // En este paso nadie vuelve a tocar «Seguir» para retomarlo: se sigue sin él y queda dicho.
+    archivo.texto = ''
+    archivo.problema = problemaPorTipo(archivo)
+    estado.avisos.push(`Archivo «${archivo.nombre}» del chat del principio: no se llegó a leer dentro del plazo y se siguió sin él.`)
+  }
+  // Lo pegado lo escribió una persona: no puede traer los corchetes que marcan lo automático. Lo
+  // subido se arma igual que el material, cada conversación por separado y con sus adjuntos en su lugar.
+  const pegado = texto.replace(/⟪/g, '«').replace(/⟫/g, '»')
+  estado.chat = [pegado, textoDeArchivos(subidos)].filter(Boolean).join('\n\n')
   // Si no quedó nada legible es como no tener el chat: la skill lo reconstruye con tres preguntas.
   if (!estado.chat) {
     estado.chat = null
@@ -474,49 +569,88 @@ interface ProblemaDeLectura {
   detalle: string
 }
 
+interface Lectura {
+  problemas: ProblemaDeLectura[]
+  /** Los que no llegaron a leerse dentro del plazo. Quedan con `texto: null` y se retoman en el próximo «Seguir». */
+  enCurso: ArchivoMaterial[]
+  /** Lo que salió a medias sin dejar el archivo con problema: un video que se ve pero no se escucha. */
+  notas: string[]
+}
+
+/** Cómo salió una de las dos mitades de un video, o la escucha de un audio. */
+type Parte<T> = { estado: 'listo'; valor: T } | { estado: 'fallo'; detalle: string } | { estado: 'vencido' }
+
+/** Lo que se ve en un video. `descripcion` null: no tiene pista de imagen, es un audio. */
+interface Vista {
+  descripcion: string | null
+  segundos: number | null
+}
+
+const PLAZO_VENCIDO = Symbol('plazo vencido')
+
+function esNoEncontrado(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === 'ENOENT'
+}
+
 /**
- * Transcribe lo que falta y devuelve los archivos que no se pudieron leer enteros.
- *
- * Un archivo que falla siempre (una imagen que la API rechaza, un PDF que no termina de
- * transcribirse, uno que se perdió del disco) no puede frenar a todos: quedaría trabado en cada
- * «Reintentar». Se anota y se sigue. Una falla pasajera sí frena, porque reintentar la arregla.
+ * Lo que tira ffmpeg o el transcriptor nunca es pasajero: no hay red de por medio y repetirlo da
+ * lo mismo. Si un error de esos saliera sin clasificar, el motor lo tomaría por pasajero y el
+ * material quedaría trabado en cada «Reintentar».
  */
-async function transcribirPendientes(archivos: ArchivoMaterial[], dep: Dependencias): Promise<ProblemaDeLectura[]> {
-  const pendientes = archivos.filter((a) => a.texto === null)
-  const problemas: ProblemaDeLectura[] = []
-  const pasajeras: unknown[] = []
-  let siguiente = 0
-  // Varias a la vez: un cliente sube diez capturas de un chat y no tiene por qué esperar una por una.
-  async function trabajar(): Promise<void> {
-    // Después de una falla pasajera no se arranca otra: se reintenta todo junto y no se gasta de más.
-    while (!pasajeras.length && siguiente < pendientes.length) {
-      const archivo = pendientes[siguiente++]
-      try {
-        const datos = await dep.leerArchivo(archivo)
-        const salida = await pedir<instrucciones.SalidaTranscripcion>(dep, instrucciones.transcribirArchivo(archivo, datos))
-        archivo.texto = salida.texto.trim()
-      } catch (err) {
-        const problema = marcarNoLeido(archivo, err)
-        if (problema) problemas.push(problema)
-        else pasajeras.push(err)
-      }
-    }
+async function conMultimedia<T>(tarea: Promise<T>): Promise<T> {
+  try {
+    return await tarea
+  } catch (err) {
+    if (err instanceof ErrorMultimedia || esNoEncontrado(err)) throw err
+    throw new ErrorMultimedia(err instanceof Error ? err.message : String(err), 'ilegible')
   }
-  await Promise.all(Array.from({ length: Math.min(TRANSCRIPCIONES_EN_PARALELO, pendientes.length) }, trabajar))
-  if (pasajeras.length) throw pasajeras[0]
-  return problemas
+}
+
+/** Espera la tarea hasta `limite`. Si no llega, devuelve PLAZO_VENCIDO y la tarea sigue por su cuenta. */
+async function hastaElPlazo<T>(tarea: Promise<T>, limite: number): Promise<T | typeof PLAZO_VENCIDO> {
+  let reloj: ReturnType<typeof setTimeout> | undefined
+  const vencimiento = new Promise<typeof PLAZO_VENCIDO>((resolver) => {
+    reloj = setTimeout(() => resolver(PLAZO_VENCIDO), Math.max(0, limite - Date.now()))
+  })
+  try {
+    return await Promise.race([tarea, vencimiento])
+  } finally {
+    clearTimeout(reloj)
+    // Si ganó el reloj, la tarea sigue sola: que falle después no puede quedar como un rechazo sin atender.
+    tarea.catch(() => undefined)
+  }
+}
+
+/** Por qué no se pudo leer, si la falla es del archivo y repetirla da lo mismo. null: es pasajera y reintentar puede arreglarla. */
+function fallaDelArchivo(err: unknown): string | null {
+  if (esNoEncontrado(err)) return 'no estaba en el disco del servidor, se perdió después de subirlo'
+  if (err instanceof ErrorMultimedia) {
+    const detalles: Record<ErrorMultimedia['causa'], string> = {
+      sin_herramienta: `falta o falló una herramienta del servidor (${err.message}). Revisá /api/salud`,
+      ilegible: `no se pudo abrir (${err.message})`,
+      tiempo: `tardó más del tiempo máximo (${err.message})`,
+    }
+    return detalles[err.causa]
+  }
+  if (!(err instanceof ErrorIa)) return null
+  const detalles: Partial<Record<ErrorIa['causa'], string>> = {
+    cortada: 'la transcripción llegó al techo de tokens sin terminar',
+    invalido: `Claude no acepta el archivo (${err.message})`,
+    rechazo: 'Claude no quiso transcribirlo',
+    formato: err.message,
+  }
+  return detalles[err.causa] ?? null
+}
+
+function problemaPorTipo(archivo: ArchivoMaterial): string {
+  if (archivo.tipo === 'audio') return textos.PROBLEMA_AUDIO
+  if (archivo.tipo === 'video') return textos.PROBLEMA_VIDEO
+  return textos.PROBLEMA_ILEGIBLE
 }
 
 /** Si la falla es del archivo y no pasajera, lo deja marcado y dice qué pasó. Si no, null. */
 function marcarNoLeido(archivo: ArchivoMaterial, err: unknown): ProblemaDeLectura | null {
-  if ((err as { code?: string } | null)?.code === 'ENOENT') {
-    archivo.texto = ''
-    archivo.problema = textos.PROBLEMA_PERDIDO
-    return { archivo, detalle: 'no estaba en el disco del servidor, se perdió después de subirlo' }
-  }
-  if (!(err instanceof ErrorIa)) return null
-
-  if (err.causa === 'cortada' && archivo.tipo === 'pdf') {
+  if (err instanceof ErrorIa && err.causa === 'cortada' && archivo.tipo === 'pdf') {
     // Un documento largo de verdad: lo leído hasta el techo sirve. En una imagen no pasa nunca
     // salvo que Claude se quede repitiendo, y eso no se guarda.
     // La última línea quedó a medias («Modelo B: $2» de un precio más largo): propuesta como texto
@@ -529,17 +663,238 @@ function marcarNoLeido(archivo: ArchivoMaterial, err: unknown): ProblemaDeLectur
       return { archivo, detalle: `es tan largo que la transcripción llegó al techo de tokens: quedaron los primeros ${leido.length} caracteres y el resto no se leyó` }
     }
   }
-  const detalles: Partial<Record<ErrorIa['causa'], string>> = {
-    cortada: 'la transcripción llegó al techo de tokens sin terminar',
-    invalido: `Claude no acepta el archivo (${err.message})`,
-    rechazo: 'Claude no quiso transcribirlo',
-    formato: err.message,
-  }
-  const detalle = detalles[err.causa]
-  if (!detalle) return null
+  const detalle = fallaDelArchivo(err)
+  if (detalle === null) return null
   archivo.texto = ''
-  archivo.problema = textos.PROBLEMA_ILEGIBLE
+  archivo.problema = esNoEncontrado(err) ? textos.PROBLEMA_PERDIDO : problemaPorTipo(archivo)
   return { archivo, detalle }
+}
+
+function aplicarEscucha(archivo: ArchivoMaterial, transcripcion: Transcripcion): void {
+  archivo.texto = textoEscuchado(transcripcion)
+  archivo.duracion = transcripcion.segundos
+  if (transcripcion.dudosa) archivo.dudosa = true
+  else delete archivo.dudosa
+  delete archivo.problema
+  delete archivo.descripcion
+}
+
+function textoEscuchado(transcripcion: Transcripcion): string {
+  const texto = transcripcion.texto.trim()
+  // Con silencio Whisper inventa palabras sueltas: mejor decir que no habla nadie.
+  if (transcripcion.sinVoz || !texto) return textos.TEXTO_SIN_VOZ
+  return transcripcion.recortada ? `${texto} (se escucharon los primeros 15 minutos)` : texto
+}
+
+/** Dos archivos con los mismos bytes dan lo mismo: el segundo copia lo que salió del primero. */
+function copiarLectura(origen: ArchivoMaterial, destino: ArchivoMaterial): void {
+  destino.texto = origen.texto
+  destino.tipo = origen.tipo
+  for (const campo of ['problema', 'duracion', 'dudosa', 'descripcion'] as const) {
+    if (origen[campo] === undefined) delete destino[campo]
+    else Object.assign(destino, { [campo]: origen[campo] })
+  }
+}
+
+/**
+ * Lee lo que falta de `archivos` y dice qué no se pudo leer y qué no llegó a tiempo. `todos` es
+ * el material entero: de ahí sale en qué conversación está cada archivo.
+ *
+ * - Fotos y PDF los lee Claude; de los videos mira unos cuadros. Audios y videos se escuchan con
+ *   el transcriptor del servidor. Las dos cosas corren a la vez.
+ * - Un archivo que falla siempre (una imagen que la API rechaza, un audio que ffmpeg no abre, uno
+ *   que se perdió del disco) no puede frenar a todos: quedaría trabado en cada «Reintentar». Se
+ *   anota y se sigue. Una falla pasajera de Claude sí frena, porque reintentar la arregla.
+ * - Hay un solo plazo para todo. Al vencer no se toma trabajo nuevo: lo que falta queda sin leer
+ *   y se retoma después. Sin plazo, cuatrocientas fotos o una hora de audio pasarían el tiempo
+ *   del candado y la pantalla ofrecería reintentar lo que todavía está corriendo.
+ */
+async function leerPendientes(archivos: ArchivoMaterial[], todos: ArchivoMaterial[], dep: Dependencias): Promise<Lectura> {
+  const limite = Date.now() + (dep.plazoMultimediaMs ?? PLAZO_LECTURA_MS)
+  const lectura: Lectura = { problemas: [], enCurso: [], notas: [] }
+  const pasajeras: unknown[] = []
+  const indice = indiceDeMaterial(todos)
+
+  // El mismo video mandado en dos chats se mira y se escucha una sola vez.
+  const yaLeidos = new Map<string, ArchivoMaterial>()
+  for (const archivo of todos) if (archivo.hash && archivo.texto !== null && !yaLeidos.has(archivo.hash)) yaLeidos.set(archivo.hash, archivo)
+  const primeros = new Map<string, ArchivoMaterial>()
+  const copias = new Map<ArchivoMaterial, ArchivoMaterial[]>()
+  const pendientes: ArchivoMaterial[] = []
+  for (const archivo of archivos) {
+    if (archivo.texto !== null) continue
+    if (archivo.tipo === 'texto' || archivo.tipo === 'otro') {
+      // No hay nada que leer después de subirlo: no puede quedar pendiente para siempre.
+      archivo.texto = ''
+      continue
+    }
+    const leido = archivo.hash ? yaLeidos.get(archivo.hash) : undefined
+    if (leido) {
+      copiarLectura(leido, archivo)
+      if (archivo.problema) lectura.problemas.push({ archivo, detalle: `es el mismo archivo que «${leido.nombre}», que no se pudo leer entero` })
+      continue
+    }
+    const primero = archivo.hash ? primeros.get(archivo.hash) : undefined
+    if (primero) {
+      copias.get(primero)!.push(archivo)
+      continue
+    }
+    if (archivo.hash) primeros.set(archivo.hash, archivo)
+    copias.set(archivo, [])
+    pendientes.push(archivo)
+  }
+
+  const vistas = new Map<ArchivoMaterial, Parte<Vista>>()
+  const escuchas = new Map<ArchivoMaterial, Parte<Transcripcion>>()
+
+  async function leerConClaude(archivo: ArchivoMaterial): Promise<void> {
+    const contexto = indice.contexto(archivo)
+    let paso: instrucciones.Paso
+    if (archivo.tipo === 'imagen') {
+      const imagen = await conMultimedia(dep.imagenParaClaude(archivo))
+      paso = instrucciones.transcribirArchivo(archivo, imagen.datos, imagen.mime, contexto)
+    } else {
+      paso = instrucciones.transcribirArchivo(archivo, await dep.leerArchivo(archivo), 'application/pdf', contexto)
+    }
+    const salida = await pedir<instrucciones.SalidaTranscripcion>(dep, paso)
+    archivo.texto = (salida.texto ?? '').trim()
+    const descripcion = (salida.descripcion ?? '').trim()
+    if (descripcion) archivo.descripcion = descripcion
+    else delete archivo.descripcion
+    delete archivo.problema
+  }
+
+  async function mirar(archivo: ArchivoMaterial): Promise<Vista> {
+    // Ya se describió en un intento anterior que no llegó a escuchar el audio: no se paga de nuevo.
+    if (archivo.descripcion !== undefined) return { descripcion: archivo.descripcion, segundos: archivo.duracion ?? null }
+    const guardada = dep.descripcionGuardada ? await dep.descripcionGuardada(archivo).catch(() => null) : null
+    if (guardada !== null) return { descripcion: guardada, segundos: null }
+    const fotogramas: Fotogramas = await conMultimedia(dep.fotogramasDeVideo(archivo))
+    if (!fotogramas.tieneVideo || !fotogramas.cuadros.length) return { descripcion: null, segundos: fotogramas.segundos }
+    const salida = await pedir<instrucciones.SalidaVideo>(
+      dep,
+      instrucciones.describirVideo(archivo, fotogramas.cuadros, fotogramas.segundos, indice.contexto(archivo)),
+    )
+    const descripcion = (salida.descripcion ?? '').trim()
+    if (dep.guardarDescripcion) await dep.guardarDescripcion(archivo, descripcion).catch(() => undefined)
+    return { descripcion, segundos: fotogramas.segundos }
+  }
+
+  // Carril de Claude: fotos, PDF y los cuadros de los videos.
+  const paraClaude = pendientes.filter((a) => a.tipo === 'imagen' || a.tipo === 'pdf' || a.tipo === 'video')
+  let siguienteDeClaude = 0
+  async function trabajarConClaude(): Promise<void> {
+    // Después de una falla pasajera no se arranca otra: se reintenta todo junto y no se gasta de más.
+    while (!pasajeras.length && siguienteDeClaude < paraClaude.length && Date.now() < limite) {
+      const archivo = paraClaude[siguienteDeClaude++]
+      try {
+        if (archivo.tipo === 'video') vistas.set(archivo, { estado: 'listo', valor: await mirar(archivo) })
+        else await leerConClaude(archivo)
+      } catch (err) {
+        if (archivo.tipo === 'video') {
+          const detalle = fallaDelArchivo(err)
+          if (detalle === null) pasajeras.push(err)
+          else vistas.set(archivo, { estado: 'fallo', detalle })
+          continue
+        }
+        const problema = marcarNoLeido(archivo, err)
+        if (problema) lectura.problemas.push(problema)
+        else pasajeras.push(err)
+      }
+    }
+  }
+
+  // Carril local: el audio de los audios y de los videos.
+  const paraEscuchar = pendientes.filter((a) => a.tipo === 'audio' || a.tipo === 'video')
+  let siguienteParaEscuchar = 0
+  async function escuchar(): Promise<void> {
+    while (!pasajeras.length && siguienteParaEscuchar < paraEscuchar.length && Date.now() < limite) {
+      const archivo = paraEscuchar[siguienteParaEscuchar++]
+      try {
+        const resultado = await hastaElPlazo(conMultimedia(dep.transcribirAudio(archivo)), limite)
+        escuchas.set(archivo, resultado === PLAZO_VENCIDO ? { estado: 'vencido' } : { estado: 'listo', valor: resultado })
+      } catch (err) {
+        // conMultimedia ya clasificó todo: acá nunca llega una falla pasajera.
+        escuchas.set(archivo, { estado: 'fallo', detalle: fallaDelArchivo(err) ?? String(err) })
+      }
+    }
+  }
+
+  await Promise.all([
+    ...Array.from({ length: Math.min(LECTURAS_CON_CLAUDE_EN_PARALELO, paraClaude.length) }, trabajarConClaude),
+    ...Array.from({ length: Math.min(ESCUCHAS_EN_PARALELO, paraEscuchar.length) }, escuchar),
+  ])
+  if (pasajeras.length) throw pasajeras[0]
+
+  const fallo = (archivo: ArchivoMaterial, detalle: string) => {
+    archivo.texto = ''
+    archivo.problema = problemaPorTipo(archivo)
+    lectura.problemas.push({ archivo, detalle })
+  }
+  const enEspera = (archivo: ArchivoMaterial) => {
+    archivo.texto = null
+    // Solo lo que se escucha lleva esta nota: de una foto sin leer no se puede decir «lo estamos escuchando».
+    if (archivo.tipo === 'audio' || archivo.tipo === 'video') archivo.problema = textos.PROBLEMA_EN_PROCESO
+    lectura.enCurso.push(archivo)
+  }
+
+  for (const archivo of pendientes) {
+    if (archivo.tipo === 'imagen' || archivo.tipo === 'pdf') {
+      if (archivo.texto === null) enEspera(archivo)
+      continue
+    }
+    const escucha = escuchas.get(archivo)
+    if (archivo.tipo === 'audio') {
+      if (!escucha || escucha.estado === 'vencido') enEspera(archivo)
+      else if (escucha.estado === 'fallo') fallo(archivo, escucha.detalle)
+      else aplicarEscucha(archivo, escucha.valor)
+      continue
+    }
+
+    const vista = vistas.get(archivo)
+    if (vista?.estado === 'listo' && vista.valor.descripcion === null) {
+      // No tiene imagen: es un audio guardado como video (pasa con las notas de voz en .mp4).
+      archivo.tipo = 'audio'
+      if (!escucha || escucha.estado === 'vencido') enEspera(archivo)
+      else if (escucha.estado === 'fallo') fallo(archivo, escucha.detalle)
+      else aplicarEscucha(archivo, escucha.valor)
+      continue
+    }
+    if (!vista || !escucha || escucha.estado === 'vencido') {
+      // Lo que ya se vio queda guardado en el archivo para no mirarlo de nuevo.
+      if (vista?.estado === 'listo' && vista.valor.descripcion !== null) archivo.descripcion = vista.valor.descripcion
+      enEspera(archivo)
+      continue
+    }
+    if (vista.estado !== 'listo' && escucha.estado !== 'listo') {
+      // Solo si fallan las dos mitades el video queda con problema.
+      const deLaVista = vista.estado === 'fallo' ? vista.detalle : 'no se llegó a mirar'
+      const deLaEscucha = escucha.estado === 'fallo' ? escucha.detalle : 'no se llegó a escuchar'
+      fallo(archivo, `no se pudo ver (${deLaVista}) ni escuchar (${deLaEscucha})`)
+      delete archivo.descripcion
+      continue
+    }
+    const seVe = vista.estado === 'listo' ? vista.valor.descripcion || 'no se distingue nada' : 'no se pudo ver'
+    const seEscucha = escucha.estado === 'listo' ? textoEscuchado(escucha.valor) : 'no se pudo escuchar'
+    archivo.texto = `Se ve: ${seVe}\nSe escucha: ${seEscucha}`
+    const segundos = escucha.estado === 'listo' ? escucha.valor.segundos : vista.estado === 'listo' ? vista.valor.segundos : null
+    if (segundos !== null) archivo.duracion = segundos
+    if (escucha.estado === 'listo' && escucha.valor.dudosa) archivo.dudosa = true
+    else delete archivo.dudosa
+    delete archivo.problema
+    delete archivo.descripcion
+    if (vista.estado === 'fallo') lectura.notas.push(`Archivo «${archivo.nombre}»: el video se escuchó pero no se pudo ver: ${vista.detalle}.`)
+    if (escucha.estado === 'fallo') lectura.notas.push(`Archivo «${archivo.nombre}»: el video se vio pero no se pudo escuchar: ${escucha.detalle}.`)
+  }
+
+  for (const [original, iguales] of copias) {
+    for (const copia of iguales) {
+      copiarLectura(original, copia)
+      if (lectura.enCurso.includes(original)) lectura.enCurso.push(copia)
+      else if (original.problema) lectura.problemas.push({ archivo: copia, detalle: `es el mismo archivo que «${original.nombre}», que no se pudo leer` })
+    }
+  }
+  return lectura
 }
 
 /**
@@ -572,17 +927,33 @@ export function textoDeJsonCortado(crudo: string): string {
   }
 }
 
-function anotarProblemas(estado: EstadoCuestionario, problemas: ProblemaDeLectura[]): void {
-  for (const { archivo, detalle } of problemas) estado.avisos.push(`Archivo «${archivo.nombre}»: ${detalle}.`)
+function anotarLectura(estado: EstadoCuestionario, lectura: Lectura): void {
+  for (const { archivo, detalle } of lectura.problemas) estado.avisos.push(`Archivo «${archivo.nombre}»: ${detalle}.`)
+  estado.avisos.push(...lectura.notas)
 }
 
+const AVISO_DE_RECORTE = 'El material no entró entero en lo que lee Claude y se recortó: '
+
 async function terminarMaterial(estado: EstadoCuestionario, dep: Dependencias): Promise<EstadoCuestionario> {
+  estado.material.avisoLectura = null
   const subidos = estado.material.archivos.filter((a) => a.etapa === 'material')
-  const problemas = await transcribirPendientes(subidos, dep)
-  anotarProblemas(estado, problemas)
-  // Vuelve a la lista con la nota en cada archivo que no se leyó entero: lo cambia o sigue igual.
-  // Lo que sí se leyó queda guardado y al tocar «Seguir» no se vuelve a transcribir.
-  if (problemas.length) return estado
+  const lectura = await leerPendientes(subidos, estado.material.archivos, dep)
+  anotarLectura(estado, lectura)
+
+  // Se vuelve a la lista si algo todavía se está escuchando, o si no se pudo leer un archivo
+  // suelto o el chat mismo: eso el dueño lo puede cambiar. El adjunto de una conversación no
+  // frena: nadie puede volver a grabar el audio de un cliente, y queda anotado para el reporte.
+  // Lo que sí se leyó queda guardado y al tocar «Seguir» no se vuelve a leer.
+  const indice = indiceDeMaterial(subidos)
+  const frenan = lectura.problemas.filter((problema) => !indice.esAdjunto(problema.archivo))
+  if (lectura.enCurso.length || frenan.length) {
+    estado.material.avisoLectura = lectura.enCurso.length ? textos.AVISO_EN_PROCESO : textos.AVISO_LECTURA
+    return estado
+  }
+
+  const recorte = recorteDelMaterial(estado)
+  if (recorte && !estado.avisos.some((aviso) => aviso.startsWith(AVISO_DE_RECORTE))) estado.avisos.push(`${AVISO_DE_RECORTE}${recorte}.`)
+
   // Un archivo que no se pudo leer cuenta como subido: decirle «todavía no subiste nada» al lado
   // de su archivo lo confunde. Lo que falta lo dice la revisión del material.
   const hayMaterial = subidos.length > 0 || estado.material.textos.length > 0
@@ -617,7 +988,9 @@ async function proponer(estado: EstadoCuestionario, dep: Dependencias): Promise<
   if (!instrucciones.tieneMaterial(estado)) return
   const seccion = seccionEnCurso(estado)
   const salida = await pedir<instrucciones.SalidaPropuestas>(dep, instrucciones.proponerRespuestas(estado, seccion))
-  const material = normalizarLiteral(instrucciones.textoDelMaterial(estado))
+  // Contra la versión sin transcripciones ni descripciones automáticas: lo que dijo Whisper o
+  // describió Claude no lo escribió el dueño y no se le puede proponer como suyo.
+  const material = normalizarLiteral(instrucciones.textoLiteralDelMaterial(estado))
   // Sonnet a veces devuelve una misma pregunta en varias propuestas, un pedazo en cada una: se
   // juntan en orden. Quedarse con la última le mostraba al dueño uno solo de once colores.
   const juntas = new Map<string, { fragmentos: string[]; fuentes: string[] }>()
@@ -625,8 +998,10 @@ async function proponer(estado: EstadoCuestionario, dep: Dependencias): Promise<
     const fragmentos = fragmentosDePropuesta(propuesta.texto)
     const existe = seccion.preguntas.some((p) => p.id === propuesta.id)
     // Solo se propone lo que está escrito en el material: si el modelo parafraseó o pegó
-    // pedazos en una oración, el dueño estaría confirmando algo que nunca escribió.
-    if (!existe || !fragmentos.length || fragmentos.some((f) => !material.includes(normalizarLiteral(f)))) continue
+    // pedazos en una oración, el dueño estaría confirmando algo que nunca escribió. Tampoco un
+    // fragmento que arrastre un rótulo de la app («[Foto «0001.jpg»: …]»): vería nombres de archivo.
+    const escritoPorElDueno = (f: string) => !tieneMarcadorDeLaApp(f) && material.includes(normalizarLiteral(f))
+    if (!existe || !fragmentos.length || !fragmentos.every(escritoPorElDueno)) continue
     const junta = juntas.get(propuesta.id) ?? { fragmentos: [], fuentes: [] }
     for (const fragmento of fragmentos) if (!junta.fragmentos.includes(fragmento)) junta.fragmentos.push(fragmento)
     const fuente = propuesta.fuente.trim()
@@ -744,7 +1119,8 @@ function fuenteLiteral(estado: EstadoCuestionario, seccion: Seccion): string {
     p.texto,
     ...(estado.entrevista.respuestas[p.id]?.intercambios ?? []).flatMap((i) => [i.pregunta, i.respuesta]),
   ])
-  return [...deLaSeccion, instrucciones.textoDelMaterial(estado)].join('\n')
+  // Del material, solo lo escrito: una transcripción automática no vale como cita literal.
+  return [...deLaSeccion, instrucciones.textoLiteralDelMaterial(estado)].join('\n')
 }
 
 async function escribirSeccion(estado: EstadoCuestionario, seccion: Seccion, dep: Dependencias): Promise<void> {

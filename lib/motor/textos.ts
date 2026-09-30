@@ -96,6 +96,34 @@ export const PROBLEMA_LARGO = 'Es muy largo: leímos solo la primera parte. Si l
 /** Al final de lo que se alcanzó a leer de un PDF largo, para que la entrevista sepa que falta el resto. */
 export const MARCA_TRANSCRIPCION_CORTADA = '[Acá se cortó la lectura: el archivo es demasiado largo y lo que sigue no se leyó.]'
 
+/** Junto a un audio que no se pudo transcribir. El dueño no puede volver a grabar el audio de un cliente: se le pide que lo cuente. */
+export const PROBLEMA_AUDIO = 'No pudimos escuchar este audio. Si dice algo importante, contalo cuando te pregunten.'
+
+/** Junto a un video del que no se pudo sacar ni la imagen ni el audio. */
+export const PROBLEMA_VIDEO = 'No pudimos ver este video. Si muestra algo importante, contalo cuando te pregunten.'
+
+/** Junto a un archivo de un tipo que no se lee. El mismo texto está en lib/archivos.ts, que no depende del motor. */
+export const PROBLEMA_FORMATO =
+  'Este tipo de archivo no lo podemos leer. Queda guardado igual: si tiene algo importante, mandalo como PDF, captura o texto.'
+
+/** Un pedido a Claude no puede pasar de 32 MB y el PDF viaja en base64, que ocupa un tercio más. */
+export const PROBLEMA_PDF_PESADO =
+  'El PDF pesa más de 22 MB y así no se puede leer. Si tiene algo importante, subí solo las páginas que importan.'
+
+/** Junto a un audio o un video cuya transcripción no llegó a terminar dentro del plazo. La pantalla no lo muestra como problema. */
+export const PROBLEMA_EN_PROCESO = 'Todavía lo estamos escuchando.'
+
+/** Volvió a la lista porque algo no se pudo leer. Las notas están en la tarjeta de cada conversación, que se muestra abierta. */
+export const AVISO_LECTURA =
+  'No pudimos leer entero todo lo que subiste: fijate la nota en cada conversación. Podés quitarlo, subir otra versión o **seguir igual**.'
+
+/** Volvió a la lista porque se venció el plazo de lectura. Lo que falta sigue en segundo plano. */
+export const AVISO_EN_PROCESO =
+  'Todavía estamos escuchando algunos audios y videos. Esperá unos minutos y tocá **Listo, seguir** otra vez: lo que ya leímos queda guardado.'
+
+/** En lugar de la transcripción de un audio sin voz: Whisper inventa palabras con el silencio. */
+export const TEXTO_SIN_VOZ = '(no se escucha a nadie hablando)'
+
 export function avisoFaltantes(faltan: string[]): string {
   return `Te falta: ${faltan.join('; ')}. Cada conversación muestra algo distinto de cómo vendés, así que si las tenés, subilas. Si no, podés seguir igual.`
 }

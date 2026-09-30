@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { faltaParaCorreo } from '@/lib/correo'
 import { estadoBase } from '@/lib/db'
+import { estadoMultimedia } from '@/lib/multimedia'
 import { estadoSkills } from '@/lib/skills'
 
 export const runtime = 'nodejs'
@@ -8,14 +9,15 @@ export const dynamic = 'force-dynamic'
 
 /**
  * Comprobación de salud. Primer lugar donde mirar cuando algo no anda: dice si la base
- * responde, si la imagen trae las skills y qué falta para poder mandarle el link a un cliente.
+ * responde, si la imagen trae las skills, si se pueden escuchar audios y videos, y qué falta
+ * para poder mandarle el link a un cliente.
  *
  *   curl http://localhost:3000/api/salud
  *
  * Es pública, así que de cada variable dice si está definida y nunca su valor.
  */
 export async function GET() {
-  const [base, skills] = await Promise.all([estadoBase(), estadoSkills()])
+  const [base, skills, multimedia] = await Promise.all([estadoBase(), estadoSkills(), estadoMultimedia()])
   const correo = faltaParaCorreo()
 
   // Sin esto la app arranca, pero un cliente no puede completar el cuestionario de punta a
@@ -42,13 +44,20 @@ export async function GET() {
   )
 
   const ok = base.ok && skills.ok
+  // Se decide antes de sumar lo de audios y videos: sin transcriptor la app sigue atendiendo, y
+  // el audio queda con su nota. Que falte se ve en `faltan` y en `multimedia`, pero no frena a nadie.
+  const listoParaClientes = ok && faltan.length === 0
+  for (const detalle of [multimedia.ffmpeg, multimedia.transcriptor, multimedia.modelo]) {
+    if (detalle !== 'ok') faltan.push(`Audios y videos: ${detalle.replace(/\.$/, '')}. Sin esto quedan sin escuchar.`)
+  }
   return NextResponse.json(
     {
       ok,
-      listoParaClientes: ok && faltan.length === 0,
+      listoParaClientes,
       faltan,
       base,
       skills,
+      multimedia,
       correo: { ok: correo === null, detalle: correo ?? 'Servidor de correo configurado.' },
       variables,
     },

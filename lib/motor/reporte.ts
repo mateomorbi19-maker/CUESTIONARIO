@@ -1,4 +1,5 @@
 import { ARQUETIPOS, examenAMarkdown } from '../examen'
+import { resumenDeMaterial } from './material'
 import type { EstadoCuestionario } from './tipos'
 
 /**
@@ -16,16 +17,25 @@ export function armarReporteCierre(estado: EstadoCuestionario, pendientes: strin
 
   const partes: string[] = [`# Cierre — ${estado.negocio}`, '', 'Lo que el dueño no ve. Sale del cierre interno de la entrevista.', '']
 
-  const archivos = estado.material.archivos.filter((a) => a.etapa === 'material')
+  const material = resumenDeMaterial(estado)
   partes.push(
     '## Resumen',
     '',
     `- Arquetipo: ${c ? `${c.arquetipo} · ${ARQUETIPOS[c.arquetipo]}` : 'sin clasificar'}`,
     `- Acción terminal: ${c?.accionTerminal ?? '-'}`,
     ...(estado.procesoElegido ? [`- Proceso elegido: ${estado.procesoElegido}`] : []),
-    `- Material: ${archivos.length} archivo(s), ${estado.material.textos.length} texto(s) pegado(s)${estado.chat ? ', chat del principio' : ''}${estado.reconstruccion.length ? ', último chat reconstruido de memoria' : ''}`,
+    `- Material: ${material.conversaciones} conversación(es), ${material.sueltos} archivo(s) suelto(s), ${estado.material.textos.length} texto(s) pegado(s)${estado.chat ? ', chat del principio' : ''}${estado.reconstruccion.length ? ', último chat reconstruido de memoria' : ''}`,
     `- Respuestas: ${contar('completa')} completas, ${contar('pendiente')} pendientes, ${contar('no_aplica')} no aplican (de ${preguntas.length} preguntas)`,
     '',
+  )
+
+  // Qué subió y qué faltó, conversación por conversación: el dueño solo ve la lista de archivos.
+  partes.push(
+    '## Material',
+    '',
+    'Las transcripciones de audios y las descripciones de fotos y videos son automáticas: sirven como dato, no como texto del dueño.',
+    '',
+    ...material.lineas,
   )
 
   const conPropuesta = preguntas.filter((p) => respuestas[p.id]?.propuesta)

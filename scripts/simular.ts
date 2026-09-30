@@ -187,13 +187,19 @@ async function simular(persona: Persona, completo: boolean): Promise<Corrida> {
     registros.push(r)
   })
   const iaPersona = clienteClaude(() => {}, MODELO_PERSONA)
+  // El simulador no sube archivos: el material va como texto pegado. Si el motor llegara a pedir
+  // uno, tiene que verse como error y no pasar en silencio.
+  const sinArchivos = async (): Promise<never> => {
+    throw new Error('El simulador no sube archivos: el material va como texto pegado.')
+  }
   const dep: Dependencias = {
     ia: iaMotor,
     skill: leerSkill,
     plantillaClaude: leerPlantillaClaude,
-    leerArchivo: async () => {
-      throw new Error('El simulador no sube archivos: el material va como texto pegado.')
-    },
+    leerArchivo: sinArchivos,
+    imagenParaClaude: sinArchivos,
+    transcribirAudio: sinArchivos,
+    fotogramasDeVideo: sinArchivos,
   }
   const historia: Turno[] = []
   const pendientesDeMaterial = [...(persona.material ?? [])]

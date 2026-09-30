@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { ErrorArchivo } from './archivos'
 import { ErrorCuestionario } from './cuestionarios'
 import { ErrorBaseDeDatos, traducirErrorBase } from './db'
+import type { ErrorPublico } from './estado-publico'
 import { ErrorEntrada } from './motor/motor'
 
 /**
@@ -14,7 +15,10 @@ import { ErrorEntrada } from './motor/motor'
  */
 export function errorApi(contexto: string, err: unknown, mensajeGenerico: string): NextResponse {
   if (err instanceof ErrorCuestionario) {
-    return NextResponse.json({ error: err.message }, { status: err.estadoHttp })
+    // El motivo y los bytes recibidos van al lado del mensaje: la pantalla decide con ellos si
+    // reintenta sola, sigue la subida desde donde quedó o muestra el error.
+    const cuerpo: ErrorPublico = { error: err.message, ...(err.motivo ? { motivo: err.motivo } : {}), ...err.extra }
+    return NextResponse.json(cuerpo, { status: err.estadoHttp })
   }
   if (err instanceof ErrorEntrada || err instanceof ErrorArchivo) {
     return NextResponse.json({ error: err.message }, { status: 400 })

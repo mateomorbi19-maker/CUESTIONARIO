@@ -161,7 +161,9 @@ function basePostgres(connectionString: string): Base {
 
 async function basePglite(): Promise<Base> {
   const { PGlite } = await import('@electric-sql/pglite')
-  const carpeta = join(process.env.DIR_DATOS ?? join(process.cwd(), 'data'), 'pglite')
+  // turbopackIgnore en los dos join: con uno solo, el build igual busca cualquier carpeta «pglite» del
+  // proyecto y copia la base local entera al standalone.
+  const carpeta = join(/*turbopackIgnore: true*/ process.env.DIR_DATOS ?? join(/*turbopackIgnore: true*/ process.cwd(), 'data'), 'pglite')
   mkdirSync(carpeta, { recursive: true })
   const pglite = await PGlite.create(carpeta)
 

@@ -1,0 +1,104 @@
+# Verifica la imagen de producción antes de tocar Deploy en Easypanel.
+#
+# La imagen no se puede construir en la compu de desarrollo (no hay Docker), así que esta es la
+# prueba real: la construye igual que Easypanel, la levanta contra un Postgres descartable, mira
+# /api/salud y transcribe un audio adentro del contenedor, con el usuario y los permisos de
+# producción. No usa ninguna clave ni secreto: el repositorio es público.
+name: Imagen
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: imagen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  imagen:
+    name: Construir y probar la imagen
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          # Base que vive lo que dura la corrida y a la que solo se llega desde este runner: entra
+          # sin contraseña, así no hay ninguna credencial escrita en el repositorio.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Construir la imagen
+        run: docker build --tag cuestionario:prueba .
+
+      - name: Tamaño y usuario de la imagen
+        run: |
+          docker image inspect cuestionario:prueba --format 'Tamaño: {{.Size}} bytes'
+          # El volumen de producción tiene archivos del uid 1001: con otro, la app no los lee.
+          uid="$(docker run --rm --entrypoint id cuestionario:prueba -u)"
+          echo "uid: $uid"
+          test "$uid" = "1001"
+
+      - name: Levantar la app
+        run: |
+          docker run --detach --name app --network host \
+            --env DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres \
+            cuestionario:prueba
+
+      - name: Esperar a que /api/salud diga que todo anda
+        run: |
+          # Al arrancar, la app prueba el transcriptor con un segundo de silencio: multimedia.ok
+          # puede tardar unos segundos en ponerse en true.
+          for intento in $(seq 1 60); do
+            if curl --silent --max-time 5 http://127.0.0.1:3000/api/salud > salud.json \
+              && jq --exit-status '.ok == true and .multimedia.ok == true' salud.json > /dev/null; then
+              jq . salud.json
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::/api/salud no llegó a «ok» y «multimedia.ok» en 3 minutos. Abajo está lo último que respondió."
+          jq . salud.json || cat salud.json
+          exit 1
+
+      - name: Transcribir un audio dentro del contenedor
+        run: |
+          # El audio se genera con el ffmpeg de la imagen, con el mismo formato que le pasa la app
+          # al transcriptor: PCM float32 mono de 16 kHz.
+          docker exec app sh -c '
+            set -e
+            "$RUTA_FFMPEG" -version | head -n 1
+            "$RUTA_FFMPEG" -nostdin -hide_banner -loglevel error -y \
+              -f lavfi -i "sine=frequency=440:duration=3" -ac 1 -ar 16000 -f f32le /tmp/tono.pcm
+          '
+          # Los dos modelos que trae la imagen. De un tono no sale un texto con sentido: lo que se
+          # prueba es que el modelo carga y contesta con el usuario y los permisos de producción.
+          for modelo in whisper-small whisper-base; do
+            echo '{"id":"prueba","pcm":"/tmp/tono.pcm","segundos":3}' \
+              | docker exec --interactive --env MODELO_TRANSCRIPCION="$modelo" app \
+                  sh -c 'cd "$(dirname "$RUTA_TRANSCRIPTOR")" && node "$RUTA_TRANSCRIPTOR"' \
+              | tee "salida-$modelo.txt"
+            jq --exit-status --slurp --arg modelo "$modelo" \
+              '.[0].listo == true and .[0].modelo == $modelo and .[1].id == "prueba" and (.[1].texto | type == "string")' \
+              "salida-$modelo.txt" > /dev/null \
+              || { echo "::error::El transcriptor no contestó bien con $modelo. Arriba está lo que devolvió."; exit 1; }
+          done
+
+      - name: Log de la app
+        if: always()
+        run: docker logs app || true

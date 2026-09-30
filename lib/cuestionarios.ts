@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { RegistroLlamada, VidaCache } from './claude'
 import type { ConsumoLlamada } from './costos'
 import { db } from './db'
+import type { MotivoError } from './estado-publico'
 import { estadoInicial } from './motor/motor'
 import type { Entrada, EstadoCuestionario } from './motor/tipos'
 
@@ -28,7 +29,12 @@ export interface Cuestionario {
 export class ErrorCuestionario extends Error {
   constructor(
     message: string,
-    readonly estadoHttp: 400 | 403 | 404 | 409 | 429 | 503,
+    /** 404 es solo para el token: con cualquier otro 404 la pantalla daría el link por inválido. */
+    readonly estadoHttp: 400 | 403 | 404 | 409 | 410 | 429 | 503,
+    /** Para que la pantalla decida qué hacer sin leer el mensaje. */
+    readonly motivo?: MotivoError,
+    /** Datos que viajan con el error: los bytes recibidos de una subida por partes. */
+    readonly extra?: { recibidos?: number },
   ) {
     super(message)
     this.name = 'ErrorCuestionario'
@@ -37,6 +43,15 @@ export class ErrorCuestionario extends Error {
 
 /** Pasado este tiempo, un procesamiento se da por perdido y se puede volver a intentar. */
 export const MINUTOS_PROCESO_VENCIDO = 15
+
+/**
+ * Cuánto se espera, en total, a todo lo que se lee al tocar «Listo, seguir»: las fotos y PDF que
+ * lee Claude y los audios que transcribe Whisper. Al vencer no se toma trabajo nuevo, se guarda
+ * lo leído y se vuelve a la lista. Tiene que dejar lugar, antes de que venza el candado, para los
+ * pasos que siguen (revisar el material y proponer respuestas): si el candado vence, la pantalla
+ * ofrece reintentar y se le paga dos veces a Claude.
+ */
+export const MINUTOS_PLAZO_LECTURA = 7
 
 const COLUMNAS = `id, negocio, email, estado, version, procesando_desde, ultimo_error, entrada_pendiente, aviso_enviado_en`
 
@@ -177,7 +192,11 @@ export async function guardarEstado(cuestionario: Cuestionario, estado: EstadoCu
     [JSON.stringify(estado), estado.etapa, cuestionario.id, cuestionario.version, MINUTOS_PROCESO_VENCIDO],
   )
   if (!rows[0]) {
-    throw new ErrorCuestionario('El cuestionario cambió en otra pestaña o dispositivo. Recargá la página para seguir desde donde quedó.', 409)
+    throw new ErrorCuestionario(
+      'El cuestionario cambió en otra pestaña o dispositivo. Recargá la página para seguir desde donde quedó.',
+      409,
+      'version',
+    )
   }
   return desdeFila(rows[0])
 }
@@ -197,7 +216,7 @@ export async function tomarParaProcesar(cuestionario: Cuestionario, entrada: Ent
     [JSON.stringify(entrada), cuestionario.id, cuestionario.version, MINUTOS_PROCESO_VENCIDO],
   )
   if (!rows[0]) {
-    throw new ErrorCuestionario('Tu respuesta anterior se está procesando o la página quedó desactualizada. Recargá para seguir.', 409)
+    throw new ErrorCuestionario('Tu respuesta anterior se está procesando o la página quedó desactualizada. Recargá para seguir.', 409, 'procesando')
   }
   return desdeFila(rows[0])
 }

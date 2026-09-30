@@ -1,6 +1,8 @@
 node_modules/
 .next/
 data/
+# Modelos de Whisper bajados a mano fuera de data/: pesan cientos de MB.
+/modelos/
 *.log
 next-env.d.ts
 

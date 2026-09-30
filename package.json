@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start -p 3000",
     "tipos": "tsc --noEmit",
-    "prueba": "tsx --test pruebas/*.test.ts",
-    "simular": "node --env-file-if-exists=.env --import tsx scripts/simular.ts"
+    "prueba": "node -e \"process.env.ADELANTAR_TRANSCRIPCION='0';process.exit(require('child_process').spawnSync(['tsx','--test','pruebas/*.test.ts',...process.argv.slice(1)].join(' '),{stdio:'inherit',shell:true}).status??1)\"",
+    "simular": "node --env-file-if-exists=.env --import tsx scripts/simular.ts",
+    "modelo": "node scripts/bajar-modelo.mjs data/modelos whisper-small",
+    "postinstall": "node -e \"require('fs').existsSync('transcriptor/package.json')&&require('child_process').execSync('npm ci --prefix transcriptor --ignore-scripts --no-audit --no-fund',{stdio:'inherit'})\""
   },
   "engines": {
     "node": ">=22"

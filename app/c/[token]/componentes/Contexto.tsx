@@ -1,11 +1,22 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
+import type { DestinoSubida, OpcionesSubida } from '@/lib/cliente-api'
+import type { DetalleSubida, MotivoError } from '@/lib/estado-publico'
 import type { Entrada, Pantalla } from '@/lib/motor/tipos'
 
 /** La pantalla de un tipo puntual: cada componente recibe solo los campos que le tocan. */
 export type PantallaDe<T extends Pantalla['tipo']> = Extract<Pantalla, { tipo: T }>
 
-/** Cómo terminó una subida o un quitar. El error ya viene listo para mostrar. */
+/** Cómo terminó un quitar o un cambio de nombre. El error ya viene listo para mostrar. */
 export type Resultado = { ok: true } | { ok: false; error: string }
+
+/**
+ * Cómo terminó la subida de un archivo. Si salió bien trae el detalle: cuántos se agregaron (un
+ * .zip suma uno por cada archivo de adentro), cuántos ya estaban y qué no se pudo sacar.
+ */
+export type ResultadoUi =
+  | ({ ok: true } & DetalleSubida)
+  /** `motivo`: para lo que la fila de subidas resuelve sola, como pasar el lote a «Nombre (2)». */
+  | { ok: false; error: string; motivo?: MotivoError }
 
 /**
  * Lo que una pantalla puede hacer. Lo arma `Cuestionario` contra la API y la galería de /demo
@@ -16,8 +27,16 @@ export interface AccionesCuestionario {
   token: string
   /** true si el servidor aceptó la entrada. Si no, el motivo queda en `error`. */
   enviar: (entrada: Entrada) => Promise<boolean>
-  subirArchivo: (archivo: File) => Promise<Resultado>
+  /** Lo llama la fila de subidas (SubidaDeArchivos), de a un archivo: las pantallas encolan ahí. */
+  subirArchivo: (archivo: File, destino: DestinoSubida, opciones?: OpcionesSubida) => Promise<ResultadoUi>
+  /** Deja de lado una subida que quedó a medias: el servidor borra lo que ya había recibido. */
+  descartarSubida: (archivo: File) => void
   quitarArchivo: (id: string) => Promise<Resultado>
+  /** Quita todos los archivos de esa conversación. null: los sueltos. */
+  quitarConversacion: (grupo: string | null) => Promise<Resultado>
+  renombrarConversacion: (grupo: string, nombre: string) => Promise<Resultado>
+  /** Vuelve a pedir el estado: mientras se escuchan audios, para ver cuándo terminaron. */
+  recargar: () => Promise<void>
   /** Hay algo en camino o procesándose: los botones que mandan esperan. */
   ocupado: boolean
   /** Por qué no se aceptó el último envío. Va junto al formulario. */

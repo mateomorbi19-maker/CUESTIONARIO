@@ -10,18 +10,21 @@ import type {
   SalidaEvaluacionEntrevista,
   SalidaExamenModelo,
 } from '../lib/motor/instrucciones'
+import { soloLiteral } from '../lib/motor/material'
 import {
   avanzar,
   ErrorEntrada,
+  ErrorMultimedia,
   estadoInicial,
   INTENTOS_EXAMEN,
   MAXIMO_PREGUNTAS_FINALES,
+  mensajeEspera,
   pantallaActual,
   progreso,
   type Dependencias,
 } from '../lib/motor/motor'
 import * as textos from '../lib/motor/textos'
-import type { Entrada, EstadoCuestionario } from '../lib/motor/tipos'
+import type { ArchivoMaterial, Entrada, EstadoCuestionario, Transcripcion } from '../lib/motor/tipos'
 
 /** IA falsa: devuelve, en orden, las respuestas preparadas para cada paso. */
 function iaFalsa(respuestas: Record<string, unknown[]>): ClienteIa & { pedidos: PedidoJson[] } {
@@ -40,12 +43,25 @@ function iaFalsa(respuestas: Record<string, unknown[]>): ClienteIa & { pedidos: 
 
 const pasos = (ia: { pedidos: PedidoJson[] }) => ia.pedidos.map((p) => p.paso)
 
+const escucha = (texto: string, mas: Partial<Transcripcion> = {}): Transcripcion => ({
+  texto,
+  segundos: 13,
+  sinVoz: false,
+  dudosa: false,
+  recortada: false,
+  ...mas,
+})
+
+/** Sin ffmpeg ni Whisper: lo que escucharía y vería el servidor se inventa acá. */
 function dependencias(ia: ClienteIa, archivos: Record<string, Buffer> = {}): Dependencias {
   return {
     ia,
     skill: async (nombre) => `TEXTO DE LA SKILL ${nombre}`,
     leerArchivo: async (archivo) => archivos[archivo.id] ?? Buffer.from('contenido'),
     plantillaClaude: async () => '# [Tu negocio]\n\n## Qué es este proyecto\n\n[PENDIENTE — lo completa /entrevista]',
+    imagenParaClaude: async (archivo) => ({ datos: archivos[archivo.id] ?? Buffer.from('contenido'), mime: 'image/png' }),
+    transcribirAudio: async (archivo) => escucha(`transcripción de ${archivo.nombre}`),
+    fotogramasDeVideo: async () => ({ cuadros: [Buffer.from('cuadro 1'), Buffer.from('cuadro 2')], segundos: 47, tieneVideo: true, tieneAudio: true }),
   }
 }
 
@@ -463,9 +479,9 @@ describe('archivos que Claude no puede leer', () => {
       buena: () => ({ texto: 'Cliente: ¿tienen turno el sábado?' }),
     })
     const dep = dependencias(ia)
-    dep.leerArchivo = async (archivo) => {
+    dep.imagenParaClaude = async (archivo) => {
       if (archivo.id === 'borrada') throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' })
-      return Buffer.from('contenido')
+      return { datos: Buffer.from('contenido'), mime: 'image/png' }
     }
     const estado = await avanzar(
       conArchivos(['pesada', 'imagen'], ['enganchada', 'imagen'], ['borrada', 'imagen'], ['buena', 'imagen']),
@@ -683,5 +699,454 @@ describe('robustez', () => {
     await assert.rejects(avanzar(estadoInicial('Clínica'), { tipo: 'confirmar' }, dependencias(ia)), ErrorEntrada)
     await assert.rejects(avanzar(estadoInicial('Clínica'), respuesta('   '), dependencias(ia)), ErrorEntrada)
     await assert.rejects(avanzar(estadoEnMaterial(), respuesta('hola'), dependencias(ia)), ErrorEntrada)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Conversaciones, audios y videos. Todo inventado: los chats imitan el formato de WhatsApp.
+// ---------------------------------------------------------------------------------------------
+
+const CHAT_DE_LAURA = `[16/9/26, 10:05:44] Laura: Hola! Precio de fundas para Gol Trend?
+[16/9/26, 10:06:10] Tapicería Norte: <adjunto: 00000043-AUDIO.opus>
+[16/9/26, 11:14:26] Tapicería Norte: Así quedan con el vivo rojo <adjunto: 00000056-PHOTO.jpg>
+[16/9/26, 12:09:30] Tapicería Norte: Y así el cubrevolante <adjunto: 00000084-VIDEO.mp4>`
+
+let numeroDeArchivo = 0
+function subido(nombre: string, tipo: ArchivoMaterial['tipo'], mas: Partial<ArchivoMaterial> = {}): ArchivoMaterial {
+  numeroDeArchivo++
+  return { id: `f${numeroDeArchivo}`, nombre, mime: 'x/x', tipo, bytes: 10, texto: null, etapa: 'material', hash: `hash-${numeroDeArchivo}`, ...mas }
+}
+
+/** Una conversación como la deja el .zip de WhatsApp: el chat ya leído y sus adjuntos por leer. */
+function conversacionDeLaura(grupo = 'Venta cerrada - Laura'): ArchivoMaterial[] {
+  return [
+    subido('_chat.txt', 'texto', { texto: CHAT_DE_LAURA, grupo }),
+    subido('00000043-AUDIO.opus', 'audio', { grupo }),
+    subido('00000056-PHOTO.jpg', 'imagen', { grupo }),
+    subido('00000084-VIDEO.mp4', 'video', { grupo }),
+  ]
+}
+
+function conMaterial(...archivos: ArchivoMaterial[]): EstadoCuestionario {
+  const estado = estadoEnMaterial()
+  estado.material.archivos.push(...archivos)
+  return estado
+}
+
+/** Una por prueba: la IA falsa va gastando las respuestas. */
+const sinFaltantes = () => ({ revisar_material: [{ faltan: [] }], proponer_respuestas: [{ propuestas: [] }] })
+const terminarMaterial: Entrada = { tipo: 'terminar_material' }
+const textoDe = (pedido: PedidoJson) => (pedido.mensaje as { type: string; text?: string }[]).find((b) => b.type === 'text')?.text ?? ''
+const materialQueVeClaude = (ia: { pedidos: PedidoJson[] }) => JSON.stringify(ia.pedidos.find((p) => p.paso === 'proponer_respuestas')!.mensaje)
+
+describe('audios, fotos y videos de una conversación', () => {
+  it('cada adjunto se lee y queda en su lugar del chat, con lo automático marcado', async () => {
+    const ia = iaFalsa({
+      transcribir_archivo: [{ texto: '', descripcion: 'Asiento delantero con funda negra y costura roja.' }],
+      describir_video: [{ descripcion: 'Una mano muestra un cubrevolante negro.' }],
+      ...sinFaltantes(),
+    })
+    const dep = dependencias(ia)
+    dep.transcribirAudio = async (archivo) =>
+      archivo.tipo === 'video' ? escucha('este es el cubrevolante', { segundos: 68 }) : escucha('Hola Laura, salen 80 mil de lista.')
+    const estado = await avanzar(conMaterial(...conversacionDeLaura()), terminarMaterial, dep)
+
+    assert.equal(estado.etapa, 'entrevista')
+    const [, audio, foto, video] = estado.material.archivos
+    assert.deepEqual([audio.texto, audio.duracion, audio.problema], ['Hola Laura, salen 80 mil de lista.', 13, undefined])
+    assert.deepEqual([foto.texto, foto.descripcion], ['', 'Asiento delantero con funda negra y costura roja.'])
+    assert.equal(video.texto, 'Se ve: Una mano muestra un cubrevolante negro.\nSe escucha: este es el cubrevolante')
+    assert.equal(video.duracion, 68)
+
+    // A Claude se le dice en qué conversación y en qué momento se mandó cada cosa.
+    const foto_ = ia.pedidos.find((p) => p.paso === 'transcribir_archivo')!
+    assert.match(textoDe(foto_), /^PASO: transcribir material que subió el dueño\. Archivo: 00000056-PHOTO\.jpg\n/)
+    assert.match(textoDe(foto_), /Se mandó en la conversación «Venta cerrada - Laura», en este momento del chat:\n.*\n.*\n.*Así quedan con el vivo rojo/)
+    const delVideo = ia.pedidos.find((p) => p.paso === 'describir_video')!
+    const bloques = delVideo.mensaje as { type: string }[]
+    assert.deepEqual(bloques.map((b) => b.type), ['image', 'image', 'text'])
+    assert.match(textoDe(delVideo), /Archivo: 00000084-VIDEO\.mp4\n[\s\S]*Son 2 fotogramas parejos de un video de 47 segundos/)
+
+    // Lo que lee Claude en la entrevista: una conversación, con cada adjunto donde se mandó.
+    const material = JSON.parse(materialQueVeClaude(ia))[0].text as string
+    assert.match(material, /## Conversación: Venta cerrada - Laura\n\(4 archivos: el chat, 1 audio, 1 foto, 1 video\)/)
+    assert.match(material, /Tapicería Norte: \[Audio «00000043-AUDIO\.opus», 0:13, transcripción automática: ⟪Hola Laura, salen 80 mil de lista\.⟫\]/)
+    assert.match(material, /Así quedan con el vivo rojo \[Foto «00000056-PHOTO\.jpg»: ⟪Asiento delantero con funda negra y costura roja\.⟫\]/)
+    assert.match(material, /\[Video «00000084-VIDEO\.mp4», 1:08, descripción y transcripción automáticas: ⟪Se ve: Una mano/)
+    assert.match(ia.pedidos.find((p) => p.paso === 'proponer_respuestas')!.sistema[1], /El material viene separado por conversación/)
+  })
+
+  it('un audio sin voz, uno recortado y uno dudoso quedan dichos', async () => {
+    const ia = iaFalsa(sinFaltantes())
+    const dep = dependencias(ia)
+    const resultados: Record<string, Transcripcion> = {
+      'silencio.opus': escucha('', { sinVoz: true, segundos: 8 }),
+      'largo.opus': escucha('hablamos mucho', { recortada: true, segundos: 1200 }),
+      'ruido.opus': escucha('de la', { dudosa: true }),
+    }
+    dep.transcribirAudio = async (archivo) => resultados[archivo.nombre]
+    const estado = await avanzar(conMaterial(subido('silencio.opus', 'audio'), subido('largo.opus', 'audio'), subido('ruido.opus', 'audio')), terminarMaterial, dep)
+    const [silencio, largo, ruido] = estado.material.archivos
+    assert.equal(silencio.texto, textos.TEXTO_SIN_VOZ)
+    assert.equal(largo.texto, 'hablamos mucho (se escucharon los primeros 15 minutos)')
+    assert.deepEqual([ruido.texto, ruido.dudosa], ['de la', true])
+    assert.match(JSON.parse(materialQueVeClaude(ia))[0].text, /### ruido\.opus\nAudio, 0:13, transcripción automática, puede tener errores: ⟪de la⟫/)
+  })
+
+  it('un video sin imagen se trata como audio y no se le pide nada a Claude', async () => {
+    const ia = iaFalsa(sinFaltantes())
+    const dep = dependencias(ia)
+    dep.fotogramasDeVideo = async () => ({ cuadros: [], segundos: 21, tieneVideo: false, tieneAudio: true })
+    const estado = await avanzar(conMaterial(subido('nota de voz.mp4', 'video')), terminarMaterial, dep)
+    const [nota] = estado.material.archivos
+    assert.deepEqual([nota.tipo, nota.texto], ['audio', 'transcripción de nota de voz.mp4'])
+    assert.ok(!pasos(ia).includes('describir_video'))
+  })
+
+  it('el mismo archivo en dos conversaciones se mira y se escucha una sola vez', async () => {
+    const ia = iaFalsa({ describir_video: [{ descripcion: 'Un auto con fundas.' }], transcribir_archivo: [{ texto: 'Lista de precios' }], ...sinFaltantes() })
+    const dep = dependencias(ia)
+    let escuchas = 0
+    dep.transcribirAudio = async () => {
+      escuchas++
+      return escucha('así queda')
+    }
+    const estado = await avanzar(
+      conMaterial(
+        subido('video.mp4', 'video', { grupo: 'Ana', hash: 'mismo-video' }),
+        subido('00000007-VIDEO.mp4', 'video', { grupo: 'Beto', hash: 'mismo-video' }),
+        subido('lista.pdf', 'pdf', { grupo: 'Ana', hash: 'misma-lista' }),
+        subido('Lista de precios.pdf', 'pdf', { grupo: 'Beto', hash: 'misma-lista' }),
+      ),
+      terminarMaterial,
+      dep,
+    )
+    assert.equal(escuchas, 1)
+    assert.deepEqual(pasos(ia).filter((p) => p === 'describir_video' || p === 'transcribir_archivo').sort(), ['describir_video', 'transcribir_archivo'])
+    const [deAna, deBeto, lista, otraLista] = estado.material.archivos
+    assert.equal(deBeto.texto, deAna.texto)
+    assert.equal(deBeto.duracion, deAna.duracion)
+    assert.equal(otraLista.texto, lista.texto)
+
+    // Y lo que ya se leyó en una pasada anterior no se vuelve a leer para su copia.
+    const despues = conMaterial(subido('ya-leido.opus', 'audio', { hash: 'h', texto: 'hola', duracion: 4 }), subido('copia.opus', 'audio', { hash: 'h' }))
+    const otra = await avanzar(despues, terminarMaterial, dependencias(iaFalsa(sinFaltantes()), {}))
+    assert.deepEqual([otra.material.archivos[1].texto, otra.material.archivos[1].duracion], ['hola', 4])
+  })
+})
+
+describe('lo que no se puede leer no traba el material', () => {
+  const noAbre = async (): Promise<never> => {
+    throw new ErrorMultimedia('Invalid data found when processing input', 'ilegible')
+  }
+
+  it('el adjunto de una conversación con chat queda con su nota y se sigue', async () => {
+    const ia = iaFalsa({ transcribir_archivo: [{ texto: 'Foto del local' }], describir_video: [{ descripcion: 'Un auto.' }], ...sinFaltantes() })
+    const dep = dependencias(ia)
+    dep.transcribirAudio = async (archivo) => (archivo.tipo === 'audio' ? noAbre() : escucha('así queda'))
+    const estado = await avanzar(conMaterial(...conversacionDeLaura()), terminarMaterial, dep)
+
+    // Nadie puede volver a grabar el audio de un cliente: no tiene sentido frenar por eso.
+    assert.equal(estado.etapa, 'entrevista')
+    const audio = estado.material.archivos[1]
+    assert.deepEqual([audio.texto, audio.problema], ['', textos.PROBLEMA_AUDIO])
+    assert.ok(estado.avisos.some((a) => a.includes('00000043-AUDIO.opus') && a.includes('Invalid data')))
+    assert.match(JSON.parse(materialQueVeClaude(ia))[0].text, /\[Audio «00000043-AUDIO\.opus»: no se pudo escuchar\]/)
+  })
+
+  it('un archivo suelto, o el chat mismo, sí vuelve a la lista: el dueño lo puede cambiar', async () => {
+    const ia = iaFalsa(sinFaltantes())
+    const dep = dependencias(ia)
+    dep.transcribirAudio = noAbre
+    let estado = await avanzar(conMaterial(subido('mensaje de bienvenida.opus', 'audio')), terminarMaterial, dep)
+    assert.equal(estado.etapa, 'material')
+    assert.equal(estado.material.avisoLectura, textos.AVISO_LECTURA)
+    const pantalla = pantallaActual(estado)
+    assert.ok(pantalla.tipo === 'material')
+    assert.equal(pantalla.avisoLectura, textos.AVISO_LECTURA)
+    assert.deepEqual([pantalla.archivos[0].estado, pantalla.archivos[0].problema], ['con_problema', textos.PROBLEMA_AUDIO])
+
+    // La segunda vez sigue igual, sin volver a intentarlo y sin el aviso.
+    let intentos = 0
+    dep.transcribirAudio = async () => {
+      intentos++
+      return noAbre()
+    }
+    estado = await avanzar(estado, terminarMaterial, dep)
+    assert.equal(estado.etapa, 'entrevista')
+    assert.equal(estado.material.avisoLectura, null)
+    assert.equal(intentos, 0)
+  })
+
+  it('un video solo queda con problema si no se pudo ver ni escuchar', async () => {
+    const ia = iaFalsa({ describir_video: [{ descripcion: 'Un auto con fundas.' }], ...sinFaltantes() })
+    const dep = dependencias(ia)
+    dep.transcribirAudio = noAbre
+    const grupo = 'Venta'
+    const chat = subido('_chat.txt', 'texto', { grupo, texto: '[1/3/26, 10:15:02] Ana: <adjunto: a.mp4>\n[1/3/26, 10:15:09] Ana: <adjunto: b.mp4>' })
+    const unEstado = conMaterial(chat, subido('a.mp4', 'video', { grupo }), subido('b.mp4', 'video', { grupo }))
+    dep.fotogramasDeVideo = async (archivo) => (archivo.nombre === 'b.mp4' ? noAbre() : { cuadros: [Buffer.from('c')], segundos: 9, tieneVideo: true, tieneAudio: true })
+    const estado = await avanzar(unEstado, terminarMaterial, dep)
+
+    const [, a, b] = estado.material.archivos
+    assert.deepEqual([a.texto, a.problema, a.duracion], ['Se ve: Un auto con fundas.\nSe escucha: no se pudo escuchar', undefined, 9])
+    assert.deepEqual([b.texto, b.problema], ['', textos.PROBLEMA_VIDEO])
+    assert.ok(estado.avisos.some((aviso) => aviso.includes('a.mp4') && aviso.includes('no se pudo escuchar')))
+    assert.ok(estado.avisos.some((aviso) => aviso.includes('b.mp4') && aviso.includes('no se pudo ver')))
+  })
+
+  it('una falla cualquiera de ffmpeg o del transcriptor se trata igual: nunca como pasajera', async () => {
+    const ia = iaFalsa(sinFaltantes())
+    const dep = dependencias(ia)
+    dep.transcribirAudio = async () => {
+      throw new Error('spawn EACCES')
+    }
+    dep.imagenParaClaude = async () => {
+      throw new ErrorMultimedia('No se encontró ffmpeg: revisá RUTA_FFMPEG.', 'sin_herramienta')
+    }
+    const estado = await avanzar(conMaterial(subido('a.opus', 'audio'), subido('foto.heic', 'imagen', { mime: 'image/heic' })), terminarMaterial, dep)
+    // Se queda en la lista una vez, con las notas; no tira un error que obligue a «Reintentar» para siempre.
+    assert.equal(estado.etapa, 'material')
+    assert.deepEqual(estado.material.archivos.map((a) => [a.texto, a.problema]), [['', textos.PROBLEMA_AUDIO], ['', textos.PROBLEMA_ILEGIBLE]])
+    assert.ok(estado.avisos.some((a) => a.includes('foto.heic') && a.includes('/api/salud')))
+  })
+})
+
+describe('el plazo de lectura', () => {
+  const nunca = () => new Promise<never>(() => {})
+
+  it('un audio que no termina a tiempo vuelve a la lista como «todavía escuchando» y se retoma después', async () => {
+    const ia = iaFalsa({ transcribir_archivo: [{ texto: 'Foto del local' }], describir_video: [{ descripcion: 'Un cubrevolante.' }], ...sinFaltantes() })
+    const dep = { ...dependencias(ia), plazoMultimediaMs: 50 }
+    dep.transcribirAudio = (archivo) => (archivo.tipo === 'audio' ? nunca() : Promise.resolve(escucha('así queda', { segundos: 68 })))
+    let estado = await avanzar(conMaterial(...conversacionDeLaura()), terminarMaterial, dep)
+
+    assert.equal(estado.etapa, 'material')
+    assert.equal(estado.material.avisoLectura, textos.AVISO_EN_PROCESO)
+    const [, audio, foto, video] = estado.material.archivos
+    assert.deepEqual([audio.texto, audio.problema], [null, textos.PROBLEMA_EN_PROCESO])
+    // Lo que sí se leyó queda guardado.
+    assert.equal(foto.texto, 'Foto del local')
+    assert.match(video.texto ?? '', /^Se ve: Un cubrevolante\./)
+    // Para la pantalla no es un problema: se cuenta aparte.
+    const pantalla = pantallaActual(estado)
+    assert.ok(pantalla.tipo === 'material')
+    assert.equal(pantalla.avisoLectura, textos.AVISO_EN_PROCESO)
+    assert.deepEqual([pantalla.archivos[1].estado, pantalla.archivos[1].problema], ['en_proceso', null])
+    assert.equal(mensajeEspera(estado, terminarMaterial), 'Escuchando los audios y mirando los videos. Puede tardar unos minutos.')
+
+    // La transcripción terminó en segundo plano: al seguir se usa y no se vuelve a leer lo demás.
+    dep.transcribirAudio = async () => escucha('Hola Laura, salen 80 mil.')
+    estado = await avanzar(estado, terminarMaterial, dep)
+    assert.equal(estado.etapa, 'entrevista')
+    assert.equal(estado.material.avisoLectura, null)
+    assert.deepEqual([estado.material.archivos[1].texto, estado.material.archivos[1].problema], ['Hola Laura, salen 80 mil.', undefined])
+    assert.equal(pasos(ia).filter((p) => p === 'transcribir_archivo' || p === 'describir_video').length, 2)
+  })
+
+  it('un video ya descripto no se vuelve a mirar si lo que faltaba era el audio', async () => {
+    const ia = iaFalsa({ describir_video: [{ descripcion: 'Un cubrevolante negro.' }], ...sinFaltantes() })
+    const dep = { ...dependencias(ia), plazoMultimediaMs: 50 }
+    dep.transcribirAudio = nunca
+    let estado = await avanzar(conMaterial(subido('muestra.mp4', 'video')), terminarMaterial, dep)
+    assert.deepEqual(
+      [estado.material.archivos[0].texto, estado.material.archivos[0].descripcion, estado.material.archivos[0].problema],
+      [null, 'Un cubrevolante negro.', textos.PROBLEMA_EN_PROCESO],
+    )
+
+    dep.transcribirAudio = async () => escucha('este es el cubrevolante')
+    dep.fotogramasDeVideo = async () => {
+      throw new Error('no tendría que volver a sacar los fotogramas')
+    }
+    estado = await avanzar(estado, terminarMaterial, dep)
+    assert.equal(estado.material.archivos[0].texto, 'Se ve: Un cubrevolante negro.\nSe escucha: este es el cubrevolante')
+    assert.equal(pasos(ia).filter((p) => p === 'describir_video').length, 1)
+  })
+
+  it('la descripción de un video se guarda por fuera del estado, por si el paso falla antes de guardarse', async () => {
+    const guardadas = new Map<string, string>()
+    const ia = iaFalsa({ describir_video: [{ descripcion: 'Un cubrevolante negro.' }], ...sinFaltantes() })
+    const dep = dependencias(ia)
+    dep.descripcionGuardada = async (archivo) => guardadas.get(archivo.hash ?? '') ?? null
+    dep.guardarDescripcion = async (archivo, descripcion) => void guardadas.set(archivo.hash ?? '', descripcion)
+    const video = subido('muestra.mp4', 'video')
+    await avanzar(conMaterial(video), terminarMaterial, dep)
+    assert.deepEqual([...guardadas], [[video.hash, 'Un cubrevolante negro.']])
+
+    // Otro intento, sin respuesta preparada para describir_video: la saca de lo guardado.
+    const otra = iaFalsa(sinFaltantes())
+    const estado = await avanzar(conMaterial({ ...video }), terminarMaterial, { ...dep, ia: otra })
+    assert.match(estado.material.archivos[0].texto ?? '', /^Se ve: Un cubrevolante negro\./)
+  })
+
+  it('con muchas fotos, al vencer el plazo no se toman más y quedan para la próxima', async () => {
+    let llamadas = 0
+    const ia: ClienteIa = {
+      modelo: 'falso',
+      async pedirJson<T>(pedido: PedidoJson): Promise<T> {
+        if (pedido.paso !== 'transcribir_archivo') return (pedido.paso === 'revisar_material' ? { faltan: [] } : { propuestas: [] }) as T
+        llamadas++
+        await new Promise((listo) => setTimeout(listo, 40))
+        return { texto: `captura ${llamadas}` } as T
+      },
+    }
+    const dep = { ...dependencias(ia), plazoMultimediaMs: 60 }
+    const fotos = Array.from({ length: 12 }, (_, i) => subido(`captura ${i}.png`, 'imagen'))
+    let estado = await avanzar(conMaterial(...fotos), terminarMaterial, dep)
+
+    assert.equal(estado.etapa, 'material')
+    assert.equal(estado.material.avisoLectura, textos.AVISO_EN_PROCESO)
+    const leidas = estado.material.archivos.filter((a) => a.texto !== null).length
+    assert.ok(leidas >= 4 && leidas < 12, `se leyeron ${leidas}`)
+    assert.equal(llamadas, leidas)
+    // Una foto sin leer no dice «lo estamos escuchando»: queda como recién subida.
+    const pantalla = pantallaActual(estado)
+    assert.ok(pantalla.tipo === 'material')
+    assert.deepEqual([...new Set(pantalla.archivos.map((a) => a.estado))].sort(), ['listo', 'sin_leer'])
+
+    // Al seguir se leen las que faltan, sin repetir las que ya estaban.
+    estado = await avanzar(estado, terminarMaterial, { ...dep, plazoMultimediaMs: 60_000 })
+    assert.equal(estado.etapa, 'entrevista')
+    assert.equal(llamadas, 12)
+  })
+})
+
+describe('lo automático nunca se le propone al dueño como texto suyo', () => {
+  it('descarta lo que salió de una transcripción, de una descripción o que arrastra un rótulo de la app', async () => {
+    const ia = iaFalsa({
+      transcribir_archivo: [{ texto: 'FUNDAS NORTE - calidad garantizada', descripcion: 'Asiento delantero con funda negra y costura roja.' }],
+      describir_video: [{ descripcion: 'Una mano muestra un cubrevolante negro.' }],
+      revisar_material: [{ faltan: [] }],
+      proponer_respuestas: [
+        {
+          propuestas: [
+            // Lo dijo en un audio: lo escribió Whisper, no el dueño.
+            { id: '1.1', texto: 'Hola Laura, las de cuero ecológico salen 80 mil de lista.', fuente: 'Conversación «Venta cerrada - Laura»' },
+            // Lo describió Claude mirando la foto.
+            { id: '1.2', texto: 'Asiento delantero con funda negra y costura roja.', fuente: 'Conversación «Venta cerrada - Laura»' },
+            // Escrito por el dueño, pero copiado con el rótulo que pone la app.
+            { id: '1.2', texto: 'Así quedan con el vivo rojo [Foto «00000056-PHOTO.jpg»: FUNDAS NORTE - calidad garantizada', fuente: 'Conversación «Venta cerrada - Laura»' },
+          ],
+        },
+      ],
+    })
+    const dep = dependencias(ia)
+    dep.transcribirAudio = async (archivo) => escucha(archivo.tipo === 'audio' ? 'Hola Laura, las de cuero ecológico salen 80 mil de lista.' : 'así queda')
+    const estado = await avanzar(conMaterial(...conversacionDeLaura()), terminarMaterial, dep)
+    assert.equal(estado.etapa, 'entrevista')
+    assert.deepEqual(estado.entrevista.propuestas, {})
+  })
+
+  it('lo que sí escribió, o lo que está escrito en una foto, se propone', async () => {
+    const ia = iaFalsa({
+      transcribir_archivo: [{ texto: 'FUNDAS NORTE - calidad garantizada', descripcion: 'Un cartel.' }],
+      describir_video: [{ descripcion: 'Un cubrevolante.' }],
+      revisar_material: [{ faltan: [] }],
+      proponer_respuestas: [
+        {
+          propuestas: [
+            { id: '1.1', texto: 'Así quedan con el vivo rojo', fuente: 'Conversación «Venta cerrada - Laura»' },
+            { id: '1.2', texto: 'FUNDAS NORTE - calidad garantizada', fuente: 'Conversación «Venta cerrada - Laura»' },
+          ],
+        },
+      ],
+    })
+    const estado = await avanzar(conMaterial(...conversacionDeLaura()), terminarMaterial, dependencias(ia))
+    assert.deepEqual(Object.keys(estado.entrevista.propuestas), ['1.1', '1.2'])
+    assert.equal(estado.entrevista.propuestas['1.1'].fuente, 'Conversación «Venta cerrada - Laura»')
+  })
+
+  it('una cita del brief que solo está en un audio no pasa por literal', async () => {
+    const dicho = 'Trabajamos solo con cuero ecológico resistente al agua y al sol'
+    const ia = iaFalsa({
+      revisar_material: [{ faltan: [] }],
+      proponer_respuestas: [{ propuestas: [] }, { propuestas: [] }],
+      escribir_seccion_brief: [{ markdown: '## 1. Oferta' }, { markdown: `## 5. Preguntas frecuentes\nR: "${dicho}"` }, { markdown: `## 5. Preguntas frecuentes\nR: "${dicho}"` }],
+      evaluar_respuesta: [aceptar],
+      analizar_cierre: [cierre(0)],
+      cerrar_brief: [briefFinal],
+    })
+    const dep = dependencias(ia)
+    dep.transcribirAudio = async () => escucha(`${dicho}, para que dure años.`)
+    let estado = await avanzar(conMaterial(subido('explicación.opus', 'audio')), terminarMaterial, dep)
+    estado = await aplicar(estado, [{ tipo: 'no_se' }, { tipo: 'no_se' }, respuesta('Les digo que no hacemos tela')], dep)
+    // Reintentó el brief y, como sigue citando el audio, lo dejó anotado para el reporte.
+    assert.equal(ia.pedidos.filter((p) => p.paso === 'escribir_seccion_brief').length, 3)
+    assert.ok(estado.avisos.some((a) => a.startsWith('Sección 5 del brief') && a.includes(dicho)))
+  })
+})
+
+describe('el chat del principio con archivos', () => {
+  it('con el .zip de una conversación arma el chat con sus adjuntos y no frena por lo que no llega', async () => {
+    const ia = iaFalsa({ transcribir_archivo: [{ texto: '', descripcion: 'Asiento con funda negra.' }], clasificar: [clasificacionSimple] })
+    const dep = { ...dependencias(ia), plazoMultimediaMs: 50 }
+    dep.transcribirAudio = (archivo) => (archivo.tipo === 'video' ? new Promise<never>(() => {}) : Promise.resolve(escucha('Hola Laura, salen 80 mil.')))
+    dep.fotogramasDeVideo = async () => ({ cuadros: [], segundos: 5, tieneVideo: false, tieneAudio: true })
+    const estado = estadoInicial('Tapicería Norte')
+    estado.etapa = 'pedido_chat'
+    estado.material.archivos.push(...conversacionDeLaura('WhatsApp Chat - Laura').map((a) => ({ ...a, etapa: 'pedido_chat' as const })))
+    assert.equal(mensajeEspera(estado, respuesta('')), 'Leyendo la conversación y escuchando los audios.')
+
+    const siguiente = await avanzar(estado, respuesta('Esta es la última que cerré ⟪bien⟫'), dep)
+    assert.equal(siguiente.etapa, 'confirmacion')
+    const chat = siguiente.chat ?? ''
+    assert.ok(chat.startsWith('Esta es la última que cerré «bien»\n\n## Conversación: WhatsApp Chat - Laura\n'))
+    assert.match(chat, /\[Audio «00000043-AUDIO\.opus», 0:13, transcripción automática: ⟪Hola Laura, salen 80 mil\.⟫\]/)
+    assert.match(chat, /\[Foto «00000056-PHOTO\.jpg»: ⟪Asiento con funda negra\.⟫\]/)
+    // El video no llegó a tiempo: se sigue sin él, queda dicho y no queda esperando para siempre.
+    assert.match(chat, /\[Audio «00000084-VIDEO\.mp4»: no se pudo escuchar\]/)
+    const video = siguiente.material.archivos[3]
+    assert.deepEqual([video.texto, video.problema], ['', textos.PROBLEMA_AUDIO])
+    assert.ok(siguiente.avisos.some((a) => a.includes('00000084-VIDEO.mp4') && a.includes('plazo')))
+    // En la versión literal del material no queda nada de lo que dijo el audio.
+    assert.ok(!soloLiteral(chat).includes('salen 80 mil'))
+  })
+})
+
+describe('cuestionarios empezados antes de las conversaciones', () => {
+  it('un estado viejo (sin grupo, sin hash, con el .zip guardado como texto) sigue andando', async () => {
+    const ia = iaFalsa({ transcribir_archivo: [{ texto: 'Cliente: hola' }], ...sinFaltantes() })
+    const estado = estadoEnMaterial()
+    // Así quedaban: sin `avisoLectura`, y cada archivo sin conversación ni hash.
+    delete estado.material.avisoLectura
+    estado.material.archivos.push(
+      { id: 'zip', nombre: 'WhatsApp Chat - Laura.zip', mime: 'application/zip', tipo: 'texto', bytes: 900, texto: CHAT_DE_LAURA, etapa: 'material' },
+      { id: 'captura', nombre: 'captura.png', mime: 'image/png', tipo: 'imagen', bytes: 10, texto: null, etapa: 'material' },
+      { id: 'rota', nombre: 'rota.png', mime: 'image/png', tipo: 'imagen', bytes: 10, texto: '', etapa: 'material', problema: textos.PROBLEMA_ILEGIBLE },
+    )
+    // La pantalla de antes deducía el aviso de los archivos con problema: ahora lo hace el servidor.
+    const antes = pantallaActual(estado)
+    assert.ok(antes.tipo === 'material')
+    assert.equal(antes.avisoLectura, textos.AVISO_LECTURA)
+    assert.deepEqual(
+      antes.archivos.map((a) => [a.grupo, a.esChat, a.estado, a.duracion, a.bytes]),
+      [
+        [null, true, 'listo', null, 900],
+        [null, false, 'sin_leer', null, 10],
+        [null, false, 'con_problema', null, 10],
+      ],
+    )
+
+    const siguiente = await avanzar(estado, terminarMaterial, dependencias(ia))
+    assert.equal(siguiente.etapa, 'entrevista')
+    assert.equal(siguiente.material.avisoLectura, null)
+    const material = JSON.parse(materialQueVeClaude(ia))[0].text as string
+    // Sin conversaciones, el material sale con la forma de siempre; lo que el chat nombra y no está, queda como estaba.
+    assert.match(material, /### WhatsApp Chat - Laura\.zip\n\[16\/9\/26, 10:05:44\] Laura: Hola!/)
+    assert.match(material, /<adjunto: 00000043-AUDIO\.opus>/)
+    assert.match(material, /### captura\.png\nCliente: hola/)
+    assert.doesNotMatch(material, /## Conversación|## Archivos sueltos/)
+    // A Claude se le dice que un chat suelto también cuenta como conversación.
+    assert.match(JSON.stringify(ia.pedidos.find((p) => p.paso === 'revisar_material')!.mensaje), /cada chat suelto/)
+  })
+
+  it('el material que no entra entero queda avisado una sola vez', async () => {
+    const ia = iaFalsa({ revisar_material: [{ faltan: ['la conversación de alguien que no compró'] }, { faltan: [] }], proponer_respuestas: [{ propuestas: [] }] })
+    const estado = conMaterial(subido('manual.docx', 'texto', { texto: 'Paso a paso\n'.repeat(40_000) }))
+    let siguiente = await avanzar(estado, terminarMaterial, dependencias(ia))
+    siguiente = await avanzar(siguiente, terminarMaterial, dependencias(ia))
+    assert.equal(siguiente.etapa, 'entrevista')
+    assert.equal(siguiente.avisos.filter((a) => a.startsWith('El material no entró entero')).length, 1)
+    assert.match(siguiente.avisos.find((a) => a.startsWith('El material no entró entero')) ?? '', /«manual\.docx»/)
   })
 })
